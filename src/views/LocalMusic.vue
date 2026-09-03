@@ -1,60 +1,92 @@
 <template>
     <div class="detail-page">
-        <div class="header">
-            <img class="cover-art" :src="`./assets/images/local.png`" />
-            <div class="info">
-                <h1 class="title">本地音乐</h1>
-                <p class="subtitle">本地歌曲数: {{ musicFiles.length }}</p>
-                <div class="folder-info" v-if="currentFolder">
-                    <div class="folder-path">
-                        <i class="fas fa-folder"></i>
-                        <span>{{ currentFolder.name }}</span>
+        <div class="header detail-sliver-header" :style="headerStyle">
+            <CommonSkeleton v-if="loading" variant="detail-header" />
+            <template v-else>
+                <img class="cover-art" :style="coverStyle" :src="`./assets/images/local.png`" />
+            <div class="info" :style="infoStyle">
+                <h1 class="title" :style="titleStyle">本地音乐</h1>
+                <div class="expanded-info" :style="detailsStyle">
+                    <p class="subtitle">本地歌曲数: {{ musicFiles.length }}</p>
+                    <div class="folder-info" v-if="currentFolder">
+                        <div class="folder-path">
+                            <i class="fas fa-folder"></i>
+                            <span>{{ currentFolder.name }}</span>
+                        </div>
+                    </div>
+                    <div class="description">这里存放着你授权的文件夹中的歌曲，支持 MP3、FLAC、WAV、AAC、OGG、M4A 等格式</div>
+                    <div class="actions">
+                        <button class="primary-btn" @click="addPlaylistToQueue($event)" v-if="musicFiles.length > 0">
+                            <i class="fas fa-play"></i> 播放全部
+                        </button>
+                        <button class="upload-btn" @click="selectFolder" :disabled="loading">
+                            <i class="fas fa-folder-open"></i> {{ currentFolder ? '重新选择文件夹' : '选择音乐文件夹' }}
+                        </button>
+                        <div class="folder-history-container" v-if="folderHistory.length > 0">
+                            <button class="upload-btn" @click="toggleFolderHistory" :disabled="loading">
+                                <i class="fas fa-history"></i> 快速切换
+                            </button>
+                            <div class="folder-history-menu" v-if="isFolderHistoryVisible">
+                                <div v-for="folder in folderHistory" :key="folder.id" class="folder-history-item"
+                                    :class="{ active: currentFolder?.name === folder.name }">
+                                    <button class="folder-history-name" @click="switchFolder(folder)" :title="folder.name">
+                                        <i class="fas fa-folder"></i>
+                                        <span>{{ folder.name }}</span>
+                                    </button>
+                                    <button class="folder-history-delete" @click.stop="removeFolderHistory(folder.id)"
+                                        title="移除记录">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <button v-if="currentFolder" class="upload-btn" @click="refreshFolder" :disabled="refreshing">
+                            <i class="fas fa-sync-alt"></i> 刷新
+                        </button>
                     </div>
                 </div>
-                <div class="description">这里存放着你授权的文件夹中的歌曲，支持 MP3、FLAC、WAV、AAC、OGG、M4A 等格式</div>
-                <div class="actions">
-                    <button class="primary-btn" @click="addPlaylistToQueue($event)" v-if="musicFiles.length > 0">
-                        <i class="fas fa-play"></i> 播放全部
-                    </button>
-                    <button class="upload-btn" @click="selectFolder" :disabled="loading">
-                        <i class="fas fa-folder-open"></i> {{ currentFolder ? '重新选择文件夹' : '选择音乐文件夹' }}
-                    </button>
-                    <button v-if="currentFolder" class="upload-btn" @click="refreshFolder" :disabled="refreshing">
-                        <i class="fas fa-sync-alt"></i> 刷新
-                    </button>
-                </div>
             </div>
+            <button v-if="musicFiles.length > 0" class="collapsed-play-btn" :style="collapsedActionsStyle"
+                @click="addPlaylistToQueue($event)" title="播放全部">
+                <i class="far fa-play-circle"></i>
+            </button>
+            </template>
         </div>
+        <div class="detail-sliver-spacer" :style="spacerStyle"></div>
 
         <!-- 导航按钮 -->
-        <i class="location-arrow fas fa-location-arrow" @click="scrollToItem" title="当前播放歌曲"></i>
-        <img :src="`./assets/images/lemon.gif`" class="scroll-bottom-img" @click="scrollToFirstItem" title="返回顶部"/>
+        <i class="location-arrow fas fa-crosshairs" @click="scrollToItem" title="当前播放歌曲"></i>
 
         <!-- 歌曲列表 -->
         <div class="track-list-container" v-if="!loading">
-            <div class="track-list-header">
-                <h2 class="track-list-title"><span>本地歌曲</span> ( {{ filteredTracks.length }} )</h2>
+            <div class="track-list-header" :style="listHeaderStyle">
+                <h2 class="track-list-title" :style="listTitleStyle"><span>本地歌曲</span> ( {{ filteredTracks.length }} )</h2>
                 <div class="track-list-actions">
                     <div class="batch-action-container">
-                        <button class="batch-action-btn" @click="toggleBatchSelection" :class="{ 'active': batchSelectionMode }">
+                        <button class="batch-action-btn" @click="toggleBatchSelection"
+                            :class="{ 'active': batchSelectionMode }">
                             <input type="checkbox" v-model="batchSelectionMode" /> 批量操作
-                            <span v-if="selectedTracks.length > 0" class="selected-count">{{ selectedTracks.length }}</span>
+                            <span v-if="selectedTracks.length > 0" class="selected-count">{{ selectedTracks.length
+                                }}</span>
                         </button>
-                        <div v-if="batchSelectionMode && isBatchMenuVisible && selectedTracks.length > 0" class="batch-actions-menu">
+                        <div v-if="batchSelectionMode && isBatchMenuVisible && selectedTracks.length > 0"
+                            class="batch-actions-menu">
                             <ul>
                                 <li @click="appendSelectedToQueue"><i class="fas fa-list"></i> 添加到播放列表</li>
                             </ul>
                         </div>
                     </div>
-                    <button class="view-mode-btn" @click="toggleListMode" :title="listMode === 'list' ? '切换到网格视图' : '切换到列表视图'">
+                    <button class="view-mode-btn" @click="toggleListMode"
+                        :title="listMode === 'list' ? '切换到网格视图' : '切换到列表视图'">
                         <i class="fas" :class="listMode === 'list' ? 'fa-th' : 'fa-list'"></i>
                     </button>
-                    <input type="text" v-model="searchQuery" @keyup.enter="searchTracks" placeholder="搜索歌曲" class="search-input" />
+                    <input type="text" v-model="searchQuery" @keyup.enter="searchTracks" placeholder="搜索歌曲"
+                        class="search-input" />
                 </div>
             </div>
 
             <!-- 表头 -->
-            <div class="track-list-header-row" v-if="musicFiles.length > 0">
+            <div class="track-list-header-row" v-if="musicFiles.length > 0" :style="trackHeaderStyle">
                 <div class="track-checkbox-header" v-if="batchSelectionMode">
                     <input type="checkbox" :checked="isAllSelected" @click="toggleSelectAll">
                 </div>
@@ -76,35 +108,40 @@
                 </div>
             </div>
 
-            <RecycleScroller ref="recycleScrollerRef" :items="filteredTracks" :item-size="listMode === 'list' ? 50 : 70" class="track-list" key-field="name" v-if="musicFiles.length > 0">
+            <RecycleScroller ref="recycleScrollerRef" :items="filteredTracks" :item-size="listMode === 'list' ? 50 : 70"
+                class="track-list" key-field="cacheKey" page-mode :buffer="400" v-if="musicFiles.length > 0">
                 <template #default="{ item, index }">
-                    <div class="li" :key="item.name"
-                        :class="{ 'cover-view': listMode === 'grid', 'selected': selectedTracks.includes(index) }"
+                    <div class="li" :key="item.cacheKey"
+                        :class="{ 'cover-view': listMode === 'grid', 'selected': batchSelectionMode && selectedTracks.includes(index) }"
                         @click="batchSelectionMode ? selectTrack(index, $event) : playSong(item)">
-                        
+
                         <!-- 复选框或序号 -->
                         <div class="track-checkbox" v-if="batchSelectionMode">
-                            <input type="checkbox" :checked="selectedTracks.includes(index)" @click.stop="selectTrack(index, $event)">
+                            <input type="checkbox" :checked="selectedTracks.includes(index)"
+                                @click.stop="selectTrack(index, $event)">
                         </div>
                         <div class="track-number" v-else>{{ index + 1 }}</div>
 
                         <!-- 网格模式封面 -->
                         <div class="track-cover" v-if="listMode === 'grid'">
-                            <img :src="item.cover || './assets/images/ico.png'" alt="Cover">
-                            <div class="track-cover-overlay" :class="{ 'playing': props.playerControl?.currentSong.name == item.name }">
-                                <i :class="props.playerControl?.currentSong.name == item.name ? 'fas fa-music' : 'fas fa-play'"></i>
+                            <img :src="item.cover || DEFAULT_COVER" alt="Cover" @error="handleCoverError(item, $event)">
+                            <div class="track-cover-overlay"
+                                :class="{ 'playing': props.playerControl?.currentSong.name == item.name }">
+                                <i
+                                    :class="props.playerControl?.currentSong.name == item.name ? 'fas fa-music' : 'fas fa-play'"></i>
                             </div>
                         </div>
 
                         <!-- 歌曲信息 -->
                         <div class="track-title" :title="item.name">{{ item.displayName }}
-                            <span v-if="item.qualityInfo" class="icon" :class="item.qualityInfo.class">{{ item.qualityInfo.text }}</span>
+                            <span v-if="item.qualityInfo" class="icon" :class="item.qualityInfo.class">{{
+                                item.qualityInfo.text }}</span>
                         </div>
                         <div class="track-artist" :title="item.author">{{ item.author }}</div>
                         <div class="track-album" :title="item.album">{{ item.album }}</div>
                         <div class="track-size" :title="item.filesize">{{ item.filesize }}</div>
                         <div class="track-timelen">
-                            <button v-if="props.playerControl?.currentSong.name == item.name && listMode === 'list'" 
+                            <button v-if="props.playerControl?.currentSong.name == item.name && listMode === 'list'"
                                 class="queue-play-btn fas fa-music"></button>
                             {{ formatDuration(item.duration) }}
                         </div>
@@ -115,8 +152,8 @@
             <!-- 空状态 -->
             <div v-if="musicFiles.length === 0 && currentFolder" class="empty-state">
                 <img src="/assets/images/empty1.png">
-                <p>该文件夹中没有找到音乐文件</p>
-                <p class="hint">支持的格式: MP3, FLAC, WAV, AAC, OGG, M4A</p>
+                <p>{{ hasMusicCache ? '该文件夹中没有找到音乐文件' : '该文件夹尚未建立本地音乐缓存' }}</p>
+                <p class="hint">{{ hasMusicCache ? '支持的格式: MP3, FLAC, WAV, AAC, OGG, M4A' : '点击刷新按钮扫描音乐文件' }}</p>
             </div>
 
             <!-- 欢迎状态 -->
@@ -130,7 +167,7 @@
         <!-- 加载状态 -->
         <div v-if="loading" class="loading-state">
             <div class="loading-spinner"></div>
-            <p>正在扫描音乐文件...</p>
+            <p>正在加载本地音乐...</p>
         </div>
 
         <div class="note-container">
@@ -139,12 +176,18 @@
             </transition-group>
         </div>
     </div>
+    <PageScrollbar />
+    <BackToTop bottom="100px" right="12px" />
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, shallowRef, onMounted, onBeforeUnmount, computed, toRaw, nextTick } from 'vue';
 import { RecycleScroller } from 'vue3-virtual-scroller';
+import CommonSkeleton from '../components/CommonSkeleton.vue';
+import PageScrollbar from '../components/PageScrollbar.vue';
+import BackToTop from '../components/BackToTop.vue';
 import { parseBlob } from 'music-metadata';
+import { useStickyDetailHeader } from '@/composables/useStickyDetailHeader';
 
 // Props
 const props = defineProps({
@@ -152,14 +195,18 @@ const props = defineProps({
 });
 
 // 通用状态
-const currentFolder = ref(null);
+const currentFolder = shallowRef(null);
+const currentFolderId = ref('');
 const musicFiles = ref([]);
 const filteredTracks = ref([]);
 const searchQuery = ref('');
 const recycleScrollerRef = ref(null);
 const loading = ref(false);
 const refreshing = ref(false);
+const hasMusicCache = ref(false);
 const flyingNotes = ref([]);
+const folderHistory = shallowRef([]);
+const isFolderHistoryVisible = ref(false);
 let noteId = 0;
 
 // 批量选择相关状态
@@ -177,61 +224,354 @@ const listMode = ref(localStorage.getItem('localMusicListMode') || 'list');
 
 // 支持的音乐文件格式
 const supportedFormats = ['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma'];
+const DEFAULT_COVER = './assets/images/ico.png';
 
 // IndexedDB 相关
 const DB_NAME = 'LocalMusicDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'folderHandles';
+const TRACK_STORE_NAME = 'musicTracks';
+const TRACK_FOLDER_INDEX = 'folderId';
+const LAST_FOLDER_ID = 'lastSelectedFolder';
+const FOLDER_HISTORY_ID = 'folderHistory';
+const MUSIC_CACHE_KEY_PREFIX = 'musicCache:';
+const MAX_FOLDER_HISTORY = 10;
+const coverUrls = new Map();
 
 // 判断是否全选
 const isAllSelected = computed(() => {
     return selectedTracks.value.length === filteredTracks.value.length && filteredTracks.value.length > 0;
 });
 
+const {
+    headerStyle,
+    spacerStyle,
+    coverStyle,
+    infoStyle,
+    titleStyle,
+    detailsStyle,
+    listTitleStyle,
+    collapsedActionsStyle,
+    listHeaderStyle,
+    trackHeaderStyle
+} = useStickyDetailHeader();
+
 onMounted(() => {
-    $message.warning('该页面处于测试阶段，功能还未完善')
     loadLastFolder();
     document.addEventListener('click', handleClickOutside);
 });
 
 onBeforeUnmount(() => {
     document.removeEventListener('click', handleClickOutside);
+    releaseCoverUrls();
 });
 
 // 初始化 IndexedDB
 const initDB = () => {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-        
+
         request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
-        
+        request.onsuccess = () => {
+            const db = request.result;
+            db.onversionchange = () => db.close();
+            resolve(db);
+        };
+
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 db.createObjectStore(STORE_NAME, { keyPath: 'id' });
             }
+            if (!db.objectStoreNames.contains(TRACK_STORE_NAME)) {
+                const trackStore = db.createObjectStore(TRACK_STORE_NAME, { keyPath: 'cacheKey' });
+                trackStore.createIndex(TRACK_FOLDER_INDEX, 'folderId', { unique: false });
+            }
         };
     });
+};
+
+const getStoreItem = (store, key) => {
+    return new Promise((resolve, reject) => {
+        const request = store.get(key);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+const waitForTransaction = (transaction) => {
+    return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+    });
+};
+
+const getMusicCacheRecords = async (folderId) => {
+    if (!folderId) return [];
+    const db = await initDB();
+    const transaction = db.transaction([TRACK_STORE_NAME], 'readonly');
+    const store = transaction.objectStore(TRACK_STORE_NAME);
+    return new Promise((resolve, reject) => {
+        const request = store.index(TRACK_FOLDER_INDEX).getAll(folderId);
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+const getMusicCacheInfo = async (folderId) => {
+    if (!folderId) return null;
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    return getStoreItem(transaction.objectStore(STORE_NAME), `${MUSIC_CACHE_KEY_PREFIX}${folderId}`);
+};
+
+const releaseCoverUrls = () => {
+    coverUrls.forEach(url => URL.revokeObjectURL(url));
+    coverUrls.clear();
+};
+
+const createRuntimeTrack = (track) => {
+    let cover = DEFAULT_COVER;
+    if (track.coverBlob instanceof Blob && track.coverBlob.size > 0) {
+        cover = URL.createObjectURL(track.coverBlob);
+        coverUrls.set(track.cacheKey, cover);
+    }
+
+    return {
+        ...track,
+        handle: toRaw(track.handle),
+        filesize: formatFileSize(track.size),
+        cover
+    };
+};
+
+const sortMusicFiles = (files) => {
+    files.sort((a, b) => {
+        const artistCompare = a.author.localeCompare(b.author);
+        if (artistCompare !== 0) return artistCompare;
+        return a.displayName.localeCompare(b.displayName);
+    });
+    return files;
+};
+
+const applyMusicFiles = (tracks) => {
+    releaseCoverUrls();
+    const files = sortMusicFiles(tracks.map(createRuntimeTrack));
+    musicFiles.value = files;
+    filteredTracks.value = files;
+};
+
+const loadMusicCache = async (folderId) => {
+    const cacheInfo = await getMusicCacheInfo(folderId);
+    hasMusicCache.value = Boolean(cacheInfo);
+    if (!cacheInfo) {
+        applyMusicFiles([]);
+        return false;
+    }
+
+    applyMusicFiles(await getMusicCacheRecords(folderId));
+    return true;
+};
+
+const saveMusicCache = async (folderId, tracks) => {
+    const cachedTracks = await getMusicCacheRecords(folderId);
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME, TRACK_STORE_NAME], 'readwrite');
+    const folderStore = transaction.objectStore(STORE_NAME);
+    const trackStore = transaction.objectStore(TRACK_STORE_NAME);
+
+    cachedTracks.forEach(track => trackStore.delete(track.cacheKey));
+    tracks.forEach(track => trackStore.put({
+        ...track,
+        handle: toRaw(track.handle)
+    }));
+    folderStore.put({
+        id: `${MUSIC_CACHE_KEY_PREFIX}${folderId}`,
+        folderId,
+        trackCount: tracks.length,
+        timestamp: Date.now()
+    });
+
+    await waitForTransaction(transaction);
+    hasMusicCache.value = true;
+};
+
+const deleteMusicCache = async (folderId) => {
+    if (!folderId) return;
+    const cachedTracks = await getMusicCacheRecords(folderId);
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME, TRACK_STORE_NAME], 'readwrite');
+    const folderStore = transaction.objectStore(STORE_NAME);
+    const trackStore = transaction.objectStore(TRACK_STORE_NAME);
+
+    cachedTracks.forEach(track => trackStore.delete(track.cacheKey));
+    folderStore.delete(`${MUSIC_CACHE_KEY_PREFIX}${folderId}`);
+    await waitForTransaction(transaction);
+};
+
+const markCoverCacheStale = async (track) => {
+    try {
+        const cacheTrack = { ...toRaw(track) };
+        delete cacheTrack.cover;
+        delete cacheTrack.file;
+        delete cacheTrack.filesize;
+        const db = await initDB();
+        const transaction = db.transaction([TRACK_STORE_NAME], 'readwrite');
+        transaction.objectStore(TRACK_STORE_NAME).put({
+            ...cacheTrack,
+            handle: toRaw(track.handle),
+            coverBlob: null,
+            coverState: 'stale'
+        });
+        await waitForTransaction(transaction);
+    } catch (error) {
+        console.error('更新封面缓存状态失败:', error);
+    }
+};
+
+const handleCoverError = (track, event) => {
+    const coverUrl = coverUrls.get(track.cacheKey);
+    const defaultCoverUrl = new URL(DEFAULT_COVER, window.location.href).href;
+    if (!coverUrl && event.currentTarget.src === defaultCoverUrl) return;
+
+    if (coverUrl) {
+        URL.revokeObjectURL(coverUrl);
+        coverUrls.delete(track.cacheKey);
+    }
+    event.currentTarget.src = DEFAULT_COVER;
+    track.cover = DEFAULT_COVER;
+
+    if (track.coverState === 'ready') {
+        track.coverState = 'stale';
+        track.coverBlob = null;
+        markCoverCacheStale(track);
+    }
+};
+
+const normalizeFolder = (folder) => {
+    const handle = toRaw(folder?.handle);
+    if (!handle) return null;
+    return {
+        id: folder.id,
+        handle,
+        name: folder.name || handle.name,
+        timestamp: folder.timestamp || Date.now()
+    };
+};
+
+const normalizeFolderHistory = (folders) => {
+    return folders.map(normalizeFolder).filter(Boolean);
+};
+
+const findSameFolderIndex = async (folders, handle) => {
+    const rawHandle = toRaw(handle);
+    for (let i = 0; i < folders.length; i++) {
+        const folderHandle = toRaw(folders[i].handle);
+        if (!folderHandle) continue;
+        if (typeof folderHandle.isSameEntry === 'function') {
+            if (await folderHandle.isSameEntry(rawHandle)) return i;
+            continue;
+        }
+        if (folderHandle.name === rawHandle.name) return i;
+    }
+    return -1;
 };
 
 // 保存文件夹句柄到 IndexedDB
 const saveFolderHandle = async (handle) => {
     try {
+        const rawHandle = toRaw(handle);
+        const folders = await getFolderHistory();
+        const sameFolderIndex = await findSameFolderIndex(folders, rawHandle);
+        const now = Date.now();
+        const nextFolder = {
+            id: sameFolderIndex > -1 ? folders[sameFolderIndex].id : `${now}-${Math.random().toString(36).slice(2)}`,
+            handle: rawHandle,
+            name: rawHandle.name,
+            timestamp: now
+        };
+        const nextFolders = normalizeFolderHistory([
+            nextFolder,
+            ...folders.filter((_, index) => index !== sameFolderIndex)
+        ]).slice(0, MAX_FOLDER_HISTORY);
+
         const db = await initDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        
         await store.put({
-            id: 'lastSelectedFolder',
-            handle: handle,
-            name: handle.name,
-            timestamp: Date.now()
+            id: LAST_FOLDER_ID,
+            handle: rawHandle,
+            name: rawHandle.name,
+            timestamp: now
         });
-        
+        await store.put({
+            id: FOLDER_HISTORY_ID,
+            folders: nextFolders,
+            timestamp: now
+        });
+        folderHistory.value = nextFolders;
+
         console.log('文件夹句柄已保存');
+        return nextFolder;
     } catch (error) {
         console.error('保存文件夹句柄失败:', error);
+        return null;
+    }
+};
+
+const getFolderHistory = async () => {
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const history = await getStoreItem(store, FOLDER_HISTORY_ID);
+    return history?.folders || [];
+};
+
+const loadFolderHistory = async () => {
+    try {
+        folderHistory.value = await getFolderHistory();
+    } catch (error) {
+        console.error('读取文件夹历史失败:', error);
+        folderHistory.value = [];
+    }
+};
+
+const saveFolderHistory = async (folders) => {
+    try {
+        const nextFolders = normalizeFolderHistory(folders);
+        const db = await initDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        await store.put({
+            id: FOLDER_HISTORY_ID,
+            folders: nextFolders,
+            timestamp: Date.now()
+        });
+        folderHistory.value = nextFolders;
+    } catch (error) {
+        console.error('保存文件夹历史失败:', error);
+    }
+};
+
+const saveLastFolderHandle = async (handle) => {
+    try {
+        const rawHandle = toRaw(handle);
+        const db = await initDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        if (rawHandle) {
+            await store.put({
+                id: LAST_FOLDER_ID,
+                handle: rawHandle,
+                name: rawHandle.name,
+                timestamp: Date.now()
+            });
+        } else {
+            await store.delete(LAST_FOLDER_ID);
+        }
+    } catch (error) {
+        console.error('保存最近文件夹失败:', error);
     }
 };
 
@@ -241,9 +581,9 @@ const loadFolderHandle = async () => {
         const db = await initDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
-        
+
         return new Promise((resolve, reject) => {
-            const request = store.get('lastSelectedFolder');
+            const request = store.get(LAST_FOLDER_ID);
             request.onsuccess = () => {
                 const result = request.result;
                 if (result && result.handle) {
@@ -272,31 +612,56 @@ const checkFileSystemSupport = () => {
 // 加载上次选择的文件夹
 const loadLastFolder = async () => {
     if (!checkFileSystemSupport()) return;
-    
+
     try {
         loading.value = true;
+        await loadFolderHistory();
         const savedHandle = await loadFolderHandle();
         if (savedHandle) {
-            // 验证句柄是否仍然有效
-            const permission = await savedHandle.queryPermission({ mode: 'read' });
-            if (permission === 'granted') {
-                currentFolder.value = savedHandle;
-                await scanMusicFiles(savedHandle);
-                console.log('已自动加载上次选择的文件夹:', savedHandle.name);
-            } else {
-                // 请求权限
-                const newPermission = await savedHandle.requestPermission({ mode: 'read' });
-                if (newPermission === 'granted') {
-                    currentFolder.value = savedHandle;
-                    await scanMusicFiles(savedHandle);
-                    console.log('已重新获取权限并加载文件夹:', savedHandle.name);
-                }
-            }
+            currentFolder.value = savedHandle;
+            const folderIndex = await findSameFolderIndex(folderHistory.value, savedHandle);
+            const folder = folderHistory.value[folderIndex] || await saveFolderHandle(savedHandle);
+            currentFolderId.value = folder?.id || '';
+            await loadMusicCache(currentFolderId.value);
+            console.log('已加载上次选择的文件夹缓存:', savedHandle.name);
         }
     } catch (error) {
         console.error('自动加载文件夹失败:', error);
     }
     loading.value = false;
+};
+
+const toggleFolderHistory = () => {
+    isFolderHistoryVisible.value = !isFolderHistoryVisible.value;
+};
+
+const switchFolder = async (folder) => {
+    if (!folder?.handle || !checkFileSystemSupport()) return;
+
+    try {
+        const handle = toRaw(folder.handle);
+        loading.value = true;
+        isFolderHistoryVisible.value = false;
+        currentFolder.value = handle;
+        const savedFolder = await saveFolderHandle(handle);
+        currentFolderId.value = savedFolder?.id || folder.id;
+        await loadMusicCache(currentFolderId.value);
+        console.log('已切换文件夹:', folder.name);
+    } catch (error) {
+        console.error('切换文件夹失败:', error);
+    } finally {
+        loading.value = false;
+    }
+};
+
+const removeFolderHistory = async (folderId) => {
+    const folders = normalizeFolderHistory(folderHistory.value.filter(folder => folder.id !== folderId));
+    await saveFolderHistory(folders);
+    await saveLastFolderHandle(folders[0]?.handle || null);
+    await deleteMusicCache(folderId);
+    if (folders.length === 0) {
+        isFolderHistoryVisible.value = false;
+    }
 };
 
 // 选择文件夹
@@ -307,13 +672,16 @@ const selectFolder = async () => {
         loading.value = true;
         const dirHandle = await window.showDirectoryPicker();
         currentFolder.value = dirHandle;
-        
+
         // 保存句柄到 IndexedDB
-        await saveFolderHandle(dirHandle);
-        
-        // 扫描音乐文件
-        await scanMusicFiles(dirHandle);
-        
+        const folder = await saveFolderHandle(dirHandle);
+        currentFolderId.value = folder?.id || '';
+
+        const cacheLoaded = await loadMusicCache(currentFolderId.value);
+        if (!cacheLoaded) {
+            await scanMusicFiles(dirHandle, currentFolderId.value);
+        }
+
         console.log(`已选择文件夹: ${dirHandle.name}`);
     } catch (error) {
         if (error.name !== 'AbortError') {
@@ -327,10 +695,24 @@ const selectFolder = async () => {
 // 刷新文件夹
 const refreshFolder = async () => {
     if (!currentFolder.value) return;
-    
+
     try {
         refreshing.value = true;
-        await scanMusicFiles(currentFolder.value);
+        const handle = toRaw(currentFolder.value);
+        const permission = await handle.queryPermission({ mode: 'read' });
+        const nextPermission = permission === 'granted'
+            ? permission
+            : await handle.requestPermission({ mode: 'read' });
+        if (nextPermission !== 'granted') {
+            window.$modal?.alert('没有该文件夹的读取权限，请重新授权');
+            return;
+        }
+
+        if (!currentFolderId.value) {
+            const folder = await saveFolderHandle(handle);
+            currentFolderId.value = folder?.id || '';
+        }
+        await scanMusicFiles(handle, currentFolderId.value);
         console.log('刷新完成');
     } catch (error) {
         console.error('刷新失败:', error);
@@ -344,16 +726,15 @@ const refreshFolder = async () => {
 const readAudioMetadata = async (file) => {
     try {
         const metadata = await parseBlob(file);
-        
-        let coverUrl = './assets/images/ico.png';
-        
+
+        let coverBlob = null;
+
         // 提取封面图片
         if (metadata.common.picture && metadata.common.picture.length > 0) {
             const picture = metadata.common.picture[0];
-            const blob = new Blob([picture.data], { type: picture.format });
-            coverUrl = URL.createObjectURL(blob);
+            coverBlob = new Blob([picture.data], { type: picture.format });
         }
-        
+
         return {
             title: file.name || '未知',
             artist: metadata.common.artist || '未知',
@@ -364,7 +745,8 @@ const readAudioMetadata = async (file) => {
             duration: metadata.format.duration || 0,
             bitrate: metadata.format.bitrate || null,
             sampleRate: metadata.format.sampleRate || null,
-            cover: coverUrl
+            coverBlob,
+            coverState: coverBlob ? 'ready' : 'none'
         };
     } catch (error) {
         console.warn('parseBlob读取失败，跳过该歌曲:', error);
@@ -373,73 +755,95 @@ const readAudioMetadata = async (file) => {
 };
 
 // 递归扫描目录
-const scanDirectory = async (dirHandle, files = []) => {
+const scanDirectory = async (dirHandle, folderId, cachedTracks, files = [], parentPath = '') => {
     try {
         for await (const entry of dirHandle.values()) {
             if (entry.kind === 'file') {
+                const extension = '.' + getFileExtension(entry.name).toLowerCase();
+                if (!supportedFormats.includes(extension)) continue;
+
                 const file = await entry.getFile();
-                const extension = '.' + getFileExtension(file.name).toLowerCase();
-                
-                if (supportedFormats.includes(extension)) {
-                    // 读取音频元数据
-                    const metadata = await readAudioMetadata(file);
-                    
-                    if (metadata === null) {
-                        console.log(`跳过无法解析的歌曲: ${file.name}`);
-                        continue;
-                    }
-                    
+                const relativePath = parentPath ? `${parentPath}/${file.name}` : file.name;
+                const cacheKey = `${folderId}:${relativePath}`;
+                const cachedTrack = cachedTracks.get(cacheKey);
+                const canReuseCache = cachedTrack
+                    && cachedTrack.size === file.size
+                    && cachedTrack.lastModified === file.lastModified
+                    && cachedTrack.coverState !== 'stale';
+
+                if (canReuseCache) {
                     files.push({
-                        name: file.name,
-                        displayName: metadata.title,
-                        author: metadata.artist,
-                        album: metadata.album,
-                        year: metadata.year,
-                        genre: metadata.genre,
-                        track: metadata.track,
-                        size: file.size,
-                        filesize: formatFileSize(file.size),
-                        type: file.type,
-                        file: file,
+                        ...cachedTrack,
                         handle: entry,
-                        duration: metadata.duration,
-                        timelen: metadata.duration * 1000, // 转换为毫秒
-                        bitrate: metadata.bitrate,
-                        sampleRate: metadata.sampleRate,
-                        cover: metadata.cover,
-                        qualityInfo: getQualityInfo(extension, metadata.bitrate, metadata.sampleRate)
+                        type: file.type || cachedTrack.type
                     });
+                    continue;
                 }
+
+                // 读取音频元数据
+                const metadata = await readAudioMetadata(file);
+
+                if (metadata === null) {
+                    console.log(`跳过无法解析的歌曲: ${file.name}`);
+                    continue;
+                }
+
+                files.push({
+                    cacheKey,
+                    folderId,
+                    relativePath,
+                    hash: cachedTrack?.hash || `local_${cacheKey}`,
+                    name: file.name,
+                    displayName: metadata.title,
+                    author: metadata.artist,
+                    album: metadata.album,
+                    year: metadata.year,
+                    genre: metadata.genre,
+                    track: metadata.track,
+                    size: file.size,
+                    lastModified: file.lastModified,
+                    type: file.type,
+                    handle: entry,
+                    duration: metadata.duration,
+                    timelen: metadata.duration * 1000, // 转换为毫秒
+                    bitrate: metadata.bitrate,
+                    sampleRate: metadata.sampleRate,
+                    coverBlob: metadata.coverBlob,
+                    coverState: metadata.coverState,
+                    qualityInfo: getQualityInfo(extension, metadata.bitrate, metadata.sampleRate)
+                });
             } else if (entry.kind === 'directory') {
                 // 递归扫描子文件夹
-                await scanDirectory(entry, files);
+                const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+                await scanDirectory(entry, folderId, cachedTracks, files, relativePath);
             }
         }
     } catch (error) {
         console.error('扫描目录失败:', error);
+        throw error;
     }
-    
+
     return files;
 };
 
 // 扫描音乐文件
-const scanMusicFiles = async (dirHandle) => {
+const scanMusicFiles = async (dirHandle, folderId) => {
     try {
+        if (!folderId) throw new Error('无法确定本地音乐文件夹标识');
+        const cachedTracks = await getMusicCacheRecords(folderId);
+
         // 递归扫描所有子文件夹
-        const files = await scanDirectory(dirHandle);
-        
-        // 按艺术家和标题排序
-        files.sort((a, b) => {
-            const artistCompare = a.author.localeCompare(b.author);
-            if (artistCompare !== 0) return artistCompare;
-            return a.displayName.localeCompare(b.displayName);
-        });
-        
-        musicFiles.value = files;
-        filteredTracks.value = files;
-        
+        const files = await scanDirectory(
+            dirHandle,
+            folderId,
+            new Map(cachedTracks.map(track => [track.cacheKey, track]))
+        );
+
+        await saveMusicCache(folderId, files);
+        applyMusicFiles(files);
     } catch (error) {
         console.error('扫描文件失败:', error);
+        throw error;
     }
 };
 
@@ -453,8 +857,8 @@ const getQualityInfo = (extension, bitrate, sampleRate) => {
             return { text: 'SQ', class: 'sq-icon' }; // Studio Quality
         }
     }
-    
-    
+
+
     // 有损格式根据比特率判断
     if (bitrate) {
         if (bitrate >= 320) {
@@ -463,9 +867,9 @@ const getQualityInfo = (extension, bitrate, sampleRate) => {
             return { text: 'MQ', class: 'mq-icon' }; // Medium Quality
         }
     }
-    
+
     // 特殊格式标识
-    switch(extension) {
+    switch (extension) {
         case '.m4a':
         case '.aac':
             return { text: 'AAC', class: 'hq-icon' };
@@ -491,14 +895,13 @@ const playSong = async (item) => {
 
 // 添加整个播放列表到队列
 const addPlaylistToQueue = async (event, append = false) => {
-    $message.warning('建设中');return;
     const playButton = event.currentTarget;
     const rect = playButton.getBoundingClientRect();
     const note = {
         id: noteId++,
         style: {
-            '--start-x': `${rect.left + rect.width/2}px`,
-            '--start-y': `${rect.top + rect.height/2}px`,
+            '--start-x': `${rect.left + rect.width / 2}px`,
+            '--start-y': `${rect.top + rect.height / 2}px`,
             'left': '0',
             'top': '0'
         }
@@ -507,7 +910,7 @@ const addPlaylistToQueue = async (event, append = false) => {
     setTimeout(() => {
         flyingNotes.value = flyingNotes.value.filter(n => n.id !== note.id);
     }, 1500);
-    
+
     if (props.playerControl) {
         console.log('[LocalMusic] 添加本地播放列表到队列:', filteredTracks.value.length, '首歌曲');
         await props.playerControl.addLocalPlaylistToQueue(filteredTracks.value, append);
@@ -516,7 +919,7 @@ const addPlaylistToQueue = async (event, append = false) => {
 
 // 搜索歌曲
 const searchTracks = () => {
-    filteredTracks.value = musicFiles.value.filter(track => 
+    filteredTracks.value = musicFiles.value.filter(track =>
         track.name.toLowerCase().trim().includes(searchQuery.value.toLowerCase().trim()) ||
         track.author.toLowerCase().trim().includes(searchQuery.value.toLowerCase().trim())
     );
@@ -551,23 +954,27 @@ const getFileExtension = (filename) => {
 };
 
 // 滚动到当前播放歌曲
-const scrollToItem = () => {
-    const currentIndex = filteredTracks.value.findIndex(song => song.name === props.playerControl?.currentSong.name);
-    if (currentIndex !== -1) {
-        recycleScrollerRef.value.scrollToItem(currentIndex - 3, { behavior: 'smooth' });
-    }
+const scrollToTrackIndex = async (index) => {
+    await nextTick();
+    const scrollContainer = document.querySelector('.app-main-scroll');
+    const scrollerElement = recycleScrollerRef.value?.$el;
+    if (!scrollContainer || !scrollerElement) return;
+
+    const targetIndex = Math.max(0, index - 5);
+    const itemSize = listMode.value === 'list' ? 50 : 70;
+    const offsetTop = scrollContainer.scrollTop + scrollerElement.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top;
+
+    scrollContainer.scrollTo({
+        top: Math.max(0, offsetTop + targetIndex * itemSize),
+        behavior: 'smooth'
+    });
 };
 
-// 滚动到顶部
-const scrollToFirstItem = () => {
-    if (recycleScrollerRef.value) {
-        recycleScrollerRef.value.scrollToItem(0, { behavior: 'smooth' });
+const scrollToItem = async () => {
+    const currentIndex = filteredTracks.value.findIndex(song => song.name === props.playerControl?.currentSong.name);
+    if (currentIndex !== -1) {
+        await scrollToTrackIndex(currentIndex);
     }
-    window.scrollTo({
-        top: 0,
-        behavior: 'smooth',
-        scrollSource: 'manual-button-click' 
-    });
 };
 
 const handleClickOutside = (event) => {
@@ -575,6 +982,11 @@ const handleClickOutside = (event) => {
     const batchActionBtn = document.querySelector('.batch-action-btn');
     if (batchActionsMenu && !batchActionsMenu.contains(event.target) && !batchActionBtn.contains(event.target)) {
         isBatchMenuVisible.value = false;
+    }
+
+    const folderHistoryContainer = document.querySelector('.folder-history-container');
+    if (folderHistoryContainer && !folderHistoryContainer.contains(event.target)) {
+        isFolderHistoryVisible.value = false;
     }
 };
 
@@ -600,7 +1012,7 @@ const selectTrack = (index, event) => {
     if (event.shiftKey && lastSelectedIndex !== -1) {
         const start = Math.min(lastSelectedIndex, index);
         const end = Math.max(lastSelectedIndex, index);
-        
+
         for (let i = start; i <= end; i++) {
             if (!selectedTracks.value.includes(i)) {
                 selectedTracks.value.push(i);
@@ -621,13 +1033,12 @@ const selectTrack = (index, event) => {
             selectedTracks.value = [];
         }
     }
-    
+
     lastSelectedIndex = index;
 };
 
 // 将选中歌曲添加到播放队列
 const appendSelectedToQueue = async () => {
-    $message.warning('还未完善');return;
     if (selectedTracks.value.length === 0) return;
     const selectedSongs = selectedTracks.value.map(index => filteredTracks.value[index]);
     if (props.playerControl) {
@@ -657,10 +1068,10 @@ const sortTracks = (field) => {
         sortField.value = field;
         sortOrder.value = 'asc';
     }
-    
+
     filteredTracks.value = [...filteredTracks.value].sort((a, b) => {
         let valueA, valueB;
-        
+
         if (field === 'timelen') {
             valueA = a.duration || 0;
             valueB = b.duration || 0;
@@ -671,14 +1082,14 @@ const sortTracks = (field) => {
             valueA = (a[field] || '').toLowerCase();
             valueB = (b[field] || '').toLowerCase();
         }
-        
+
         if (sortOrder.value === 'asc') {
             return valueA > valueB ? 1 : -1;
         } else {
             return valueA < valueB ? 1 : -1;
         }
     });
-    
+
     if (batchSelectionMode.value) {
         selectedTracks.value = [];
     }
@@ -692,7 +1103,7 @@ const getSortIconClass = (field) => {
 };
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .detail-page {
     padding: 20px;
 }
@@ -700,26 +1111,49 @@ const getSortIconClass = (field) => {
 .header {
     display: flex;
     align-items: center;
-    margin-bottom: 40px;
+}
+
+.detail-sliver-header {
+    position: sticky;
+    z-index: 116;
+    box-sizing: border-box;
+    overflow: visible;
+    align-items: flex-start;
+    padding: 10px 0;
+    background: #fff;
+    gap: 20px;
+}
+
+.detail-sliver-spacer {
+    pointer-events: none;
+    background: #fff;
 }
 
 .cover-art {
+    flex: 0 0 auto;
     width: 200px;
     height: 200px;
     border-radius: 10px;
-    margin-right: 20px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     object-fit: cover;
+    transition: box-shadow 0.2s ease;
 }
 
 .info {
-    max-width: 600px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    max-width: calc(100% - 110px);
 }
 
 .title {
+    flex: 0 0 auto;
     font-size: 36px;
     font-weight: bold;
-    width: 800px;
+    width: 100%;
+    line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -727,13 +1161,41 @@ const getSortIconClass = (field) => {
     color: var(--primary-color);
 }
 
+.expanded-info {
+    display: flex;
+    flex-direction: column;
+    transition: opacity 0.12s linear;
+}
+
+.collapsed-play-btn {
+    position: absolute;
+    top: 50%;
+    right: 18px;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--primary-color);
+    cursor: pointer;
+    font-size: 30px;
+    line-height: 1;
+    transition: color 0.2s ease, opacity 0.2s ease;
+
+    &:hover {
+        color: var(--color-primary);
+    }
+}
+
 .subtitle {
     font-size: 18px;
+    line-height: 1.35;
+    margin: 6px 0 0;
     color: #666;
 }
 
 .folder-info {
-    margin: 10px 0;
+    margin: 8px 0;
 }
 
 .folder-path {
@@ -742,23 +1204,22 @@ const getSortIconClass = (field) => {
     gap: 8px;
     color: #666;
     font-size: 14px;
-}
 
-.folder-path i {
-    color: var(--primary-color);
+    i {
+        color: var(--primary-color);
+    }
 }
 
 .description {
-    white-space: pre-wrap;
-    line-height: 1.6;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.45;
     color: var(--text-color);
-    margin-bottom: 20px;
+    margin: 0 0 12px;
     font-size: 16px;
-    max-height: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: break-spaces;
-    overflow-y: auto;
 }
 
 .actions {
@@ -766,7 +1227,78 @@ const getSortIconClass = (field) => {
     gap: 10px;
 }
 
-.primary-btn, .upload-btn {
+.folder-history-container {
+    position: relative;
+}
+
+.folder-history-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 220px;
+    max-height: 320px;
+    overflow-y: auto;
+    margin-top: 6px;
+    padding: 6px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+    z-index: 50;
+}
+
+.folder-history-item {
+    display: flex;
+    align-items: center;
+    border-radius: 5px;
+
+    &:hover,
+    &.active {
+        background: rgba(var(--primary-color-rgb), 0.1);
+    }
+}
+
+.folder-history-name,
+.folder-history-delete {
+    border: none;
+    background: transparent;
+    color: var(--text-color);
+    cursor: pointer;
+}
+
+.folder-history-name {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    i {
+        color: var(--primary-color);
+        flex-shrink: 0;
+    }
+}
+
+.folder-history-delete {
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+    flex-shrink: 0;
+
+    &:hover {
+        color: #f56c6c;
+    }
+}
+
+.primary-btn,
+.upload-btn {
     background-color: var(--primary-color);
     color: white;
     border: none;
@@ -781,31 +1313,33 @@ const getSortIconClass = (field) => {
     background-color: var(--primary-color);
 }
 
-.primary-btn i, .upload-btn i {
-    margin-right: 5px;
+.primary-btn,
+.upload-btn {
+    i {
+        margin-right: 5px;
+    }
+
+    &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
 }
 
-.primary-btn:disabled, .upload-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-/* 歌曲列表样式 */
 .track-list-container {
-    margin-top: 30px;
 }
 
 .track-list-header {
+    position: sticky;
+    z-index: 115;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    background: #fff;
 }
 
 .track-list-title {
     font-size: 24px;
     font-weight: bold;
-    margin-bottom: 10px;
     color: var(--primary-color);
 }
 
@@ -830,11 +1364,11 @@ const getSortIconClass = (field) => {
     justify-content: center;
     color: var(--text-color);
     position: relative;
-}
 
-.batch-action-btn.active {
-    background-color: var(--primary-color);
-    color: white;
+    &.active {
+        background-color: var(--primary-color);
+        color: white;
+    }
 }
 
 .selected-count {
@@ -864,30 +1398,30 @@ const getSortIconClass = (field) => {
     z-index: 50;
     margin-top: 5px;
     width: 200px;
-}
 
-.batch-actions-menu ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
+    ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
 
-.batch-actions-menu li {
-    padding: 10px 15px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-}
+    li {
+        padding: 10px 15px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
 
-.batch-actions-menu li i {
-    margin-right: 10px;
-    width: 16px;
-    text-align: center;
-}
+        i {
+            margin-right: 10px;
+            width: 16px;
+            text-align: center;
+        }
 
-.batch-actions-menu li:hover {
-    background-color: #f0f0f0;
+        &:hover {
+            background-color: #f0f0f0;
+        }
+    }
 }
 
 .view-mode-btn {
@@ -903,14 +1437,14 @@ const getSortIconClass = (field) => {
     width: 36px;
     height: 31px;
     transition: all 0.3s ease;
-}
 
-.view-mode-btn:hover {
-    background-color: rgba(var(--primary-color-rgb), 0.1);
-}
+    &:hover {
+        background-color: rgba(var(--primary-color-rgb), 0.1);
+    }
 
-.view-mode-btn i {
-    font-size: 16px;
+    i {
+        font-size: 16px;
+    }
 }
 
 .search-input {
@@ -923,40 +1457,85 @@ const getSortIconClass = (field) => {
 }
 
 .track-list {
-    height: 800px;
-    scrollbar-width: thin;
-    scrollbar-color: transparent transparent; 
-    overflow: auto;
-}
-
-.track-list::-webkit-scrollbar {
-    width: 8px !important; 
-    display: block !important;
-}
-
-.track-list:hover {
-    scrollbar-color: var(--primary-color) transparent;
+    width: 100%;
 }
 
 .li {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    height: 50px;
     padding: 10px;
+    box-sizing: border-box;
     border-bottom: 1px solid #eee;
     border-radius: 5px;
     cursor: pointer;
+
+    &:hover {
+        border: none;
+        background-color: var(--background-color);
+    }
+
+    &.selected {
+        background-color: rgba(var(--primary-color-rgb), 0.1);
+    }
+
+    &.cover-view {
+        height: 70px;
+        padding: 5px 10px;
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid #eee;
+        border-radius: 5px;
+
+        &:hover {
+            background-color: var(--background-color);
+        }
+
+        .track-title {
+            flex: 2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-artist {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding: 0 10px;
+        }
+
+        .track-album {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding: 0 10px;
+        }
+
+        .track-size {
+            flex: 0.5;
+            text-align: center;
+        }
+
+        .track-timelen {
+            width: 95px;
+            text-align: right;
+        }
+
+        .track-checkbox,
+        .track-number {
+            margin-right: 10px;
+            width: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    }
 }
 
-.li:hover {
-    background-color: var(--background-color);
-}
-
-.li.selected {
-    background-color: rgba(var(--primary-color-rgb), 0.1);
-}
-
-/* 歌曲多选 */
 .track-checkbox {
     margin-right: 10px;
     width: 30px;
@@ -978,7 +1557,7 @@ const getSortIconClass = (field) => {
     text-overflow: ellipsis;
 }
 
-.track-size{
+.track-size {
     flex: 0.5;
     text-align: center;
 }
@@ -997,11 +1576,6 @@ const getSortIconClass = (field) => {
     overflow: hidden;
     text-overflow: ellipsis;
     padding: 0 10px;
-}
-
-.track-size{
-    flex: 0.5;
-    text-align: center;
 }
 
 .icon {
@@ -1031,28 +1605,16 @@ const getSortIconClass = (field) => {
     cursor: pointer;
 }
 
-/* 导航按钮 */
 .location-arrow {
     position: fixed;
     bottom: 168px;
     right: 14px;
-    z-index: 1;
+    z-index: 110;
     cursor: pointer;
-    font-size: 37px;
+    font-size: 20px;
     color: var(--primary-color);
 }
 
-.scroll-bottom-img {
-    position: fixed;
-    width: 60px;
-    height: 60px;
-    bottom: 110px;
-    right: 88px;
-    z-index: 1;
-    cursor: pointer;
-}
-
-/* 音符动画 */
 .note-container {
     position: fixed;
     top: 0;
@@ -1084,26 +1646,28 @@ const getSortIconClass = (field) => {
         transform: translate(var(--start-x), calc(var(--start-y) - 50px)) rotate(0deg) scale(1.2);
         opacity: 0.9;
     }
+
     20% {
         transform: translate(calc(var(--start-x) + 20px), calc(var(--start-y) - 70px)) rotate(45deg) scale(1.3);
         opacity: 0.85;
     }
+
     100% {
         transform: translate(80vw, 100vh) rotate(360deg) scale(0.6);
         opacity: 0;
     }
 }
 
-/* 表头样式 */
 .track-list-header-row {
+    position: sticky;
+    z-index: 114;
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 10px;
+    background: #fff;
     border-bottom: 1px solid var(--primary-color);
     font-weight: bold;
-    background-color: rgba(var(--primary-color-rgb), 0.1);
-    border-radius: 5px 5px 0 0;
 }
 
 .track-checkbox-header {
@@ -1120,7 +1684,10 @@ const getSortIconClass = (field) => {
     width: 30px;
 }
 
-.track-title-header, .track-artist-header, .track-timelen-header, .track-size-header {
+.track-title-header,
+.track-artist-header,
+.track-timelen-header,
+.track-size-header {
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1128,48 +1695,50 @@ const getSortIconClass = (field) => {
 
 .track-title-header {
     flex: 2;
+
+    i {
+        margin-left: 5px;
+        font-size: 14px;
+    }
 }
 
-.track-size-header{
+.track-size-header {
     flex: 0.5;
     padding: 0 10px;
+
+    i {
+        margin-left: 5px;
+        font-size: 14px;
+    }
 }
 
 .track-artist-header {
     flex: 1;
     padding: 0 10px;
+
+    i {
+        margin-left: 5px;
+        font-size: 14px;
+    }
 }
 
 .track-album-header {
     flex: 1;
     padding: 0 10px;
+
+    i {
+        margin-left: 5px;
+        font-size: 14px;
+    }
 }
 
 .track-timelen-header {
     text-align: right;
-}
 
-.track-title-header i, .track-artist-header i, .track-album-header i, .track-timelen-header i, .track-size-header i {
-    margin-left: 5px;
-    font-size: 14px;
-}
-
-.track-list-header-row:hover {
-    background-color: rgba(var(--primary-color-rgb), 0.15);
-}
-
-/* 网格视图样式 */
-.li.cover-view {
-    height: 60px;
-    padding: 5px 10px;
-    display: flex;
-    align-items: center;
-    border-bottom: 1px solid #eee;
-    border-radius: 5px;
-}
-
-.li.cover-view:hover {
-    background-color: var(--background-color);
+    i {
+        margin-left: 5px;
+        font-size: 14px;
+    }
 }
 
 .track-cover {
@@ -1180,13 +1749,13 @@ const getSortIconClass = (field) => {
     overflow: hidden;
     border-radius: 4px;
     flex-shrink: 0;
-}
 
-.track-cover img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transition: transform 0.3s ease;
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.3s ease;
+    }
 }
 
 .li.cover-view:hover .track-cover img {
@@ -1199,7 +1768,7 @@ const getSortIconClass = (field) => {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0,0,0,0.5);
+    background: rgba(0, 0, 0, 0.5);
     opacity: 0;
     transition: opacity 0.3s ease;
     display: flex;
@@ -1217,71 +1786,29 @@ const getSortIconClass = (field) => {
     opacity: 1;
 }
 
-.li.cover-view .track-title {
-    flex: 2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.li.cover-view .track-artist {
-    flex: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: 0 10px;
-}
-
-.li.cover-view .track-album {
-    flex: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: 0 10px;
-}
-
-.li.cover-view .track-size {
-    flex: 0.5;
-    text-align: center;
-}
-
-.li.cover-view .track-timelen {
-    width: 95px;
-    text-align: right;
-}
-
-.li.cover-view .track-checkbox,
-.li.cover-view .track-number {
-    margin-right: 10px;
-    width: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-/* 空状态和欢迎状态 */
 .empty-state,
 .welcome-state {
     text-align: center;
     padding: 60px 20px;
     color: #666;
+
+    i {
+        font-size: 48px;
+        color: #ddd;
+        margin-bottom: 20px;
+    }
 }
 
-.empty-state i,
-.welcome-state i {
-    font-size: 48px;
-    color: #ddd;
-    margin-bottom: 20px;
-}
+.welcome-state {
+    h3 {
+        margin: 0px 0 10px;
+        color: #333;
+    }
 
-.welcome-state h3 {
-    margin: 0px 0 10px;
-    color: #333;
-}
-
-.welcome-state p {
-    margin-bottom: 30px;
-    color: #666;
+    p {
+        margin-bottom: 30px;
+        color: #666;
+    }
 }
 
 .hint {
@@ -1290,15 +1817,14 @@ const getSortIconClass = (field) => {
     margin-top: 10px;
 }
 
-/* 加载状态 */
 .loading-state {
     text-align: center;
     padding: 60px 20px;
     color: #666;
-}
 
-.loading-state p {
-    margin-top: 20px;
+    p {
+        margin-top: 20px;
+    }
 }
 
 .loading-spinner {
@@ -1312,7 +1838,12 @@ const getSortIconClass = (field) => {
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
 }
 </style>

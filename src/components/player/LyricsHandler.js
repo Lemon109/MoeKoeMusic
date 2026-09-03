@@ -9,10 +9,17 @@ export default function useLyricsHandler(t) {
     const SongTips = ref(t('zan-wu-ge-ci'));
     const lyricsMode = ref('translation'); // 'translation' 翻译模式 或 'romanization' 音译模式
     let currentLineIndex = 0;
+    let activeLyricsRequestId = 0;
+    const isLocalHash = (hash) => String(hash || '').startsWith('local_');
 
     // 显示/隐藏歌词
     const toggleLyrics = (hash, currentTime) => {
         showLyrics.value = !showLyrics.value;
+        if (isLocalHash(hash)) {
+            SongTips.value = t('zan-wu-ge-ci');
+            return showLyrics.value;
+        }
+
         SongTips.value = t('huo-qu-ge-ci-zhong');
         // 如果显示歌词，滚动到当前播放行
         if (!lyricsData.value.length && hash) getLyrics(hash);
@@ -30,6 +37,12 @@ export default function useLyricsHandler(t) {
 
     // 获取歌词
     const getLyrics = async (hash) => {
+        if (isLocalHash(hash)) {
+            SongTips.value = t('zan-wu-ge-ci');
+            return false;
+        }
+
+        const requestId = ++activeLyricsRequestId;
         try {
             const settings = JSON.parse(localStorage.getItem('settings') || '{}');
             if (!showLyrics.value &&
@@ -39,6 +52,9 @@ export default function useLyricsHandler(t) {
 
             console.log('[LyricsHandler] 请求歌词……');
             const lyricSearchResponse = await get(`/search/lyric?hash=${hash}`);
+            if (requestId !== activeLyricsRequestId) {
+                return false;
+            }
             if (lyricSearchResponse.status !== 200 || lyricSearchResponse.candidates.length === 0) {
                 SongTips.value = t('zan-wu-ge-ci');
                 return false;
@@ -46,6 +62,9 @@ export default function useLyricsHandler(t) {
 
             // 明确指定使用KRC格式
             const lyricResponse = await get(`/lyric?id=${lyricSearchResponse.candidates[0].id}&accesskey=${lyricSearchResponse.candidates[0].accesskey}&fmt=krc&decode=true`);
+            if (requestId !== activeLyricsRequestId) {
+                return false;
+            }
             if (lyricResponse.status !== 200) {
                 SongTips.value = t('huo-qu-ge-ci-shi-bai');
                 return false;
@@ -63,11 +82,11 @@ export default function useLyricsHandler(t) {
     const parseLyrics = (text, parseTranslation = true) => {
         let translationLyrics = [];
         let romanizationLyrics = [];
-        const lines = text.split('\n');
+        const lines = text.split(/\r?\n/);
         try {
             const languageLine = lines.find(line => line.match(/\[language:(.*)\]/));
             if (parseTranslation && languageLine) {
-                const languageCode = languageLine.slice(10, -2);
+                const languageCode = languageLine.match(/\[language:([^\]]*)\]/)?.[1];
                 if (languageCode) {
                     try {
                         // 确保 languageCode 是有效的 Base64 编码
@@ -75,7 +94,9 @@ export default function useLyricsHandler(t) {
                         const cleanedCode = languageCode.replace(/[^A-Za-z0-9+/=]/g, '');
                         // 添加缺失的填充字符
                         const paddedCode = cleanedCode.padEnd(cleanedCode.length + (4 - cleanedCode.length % 4) % 4, '=');
-                        const decodedData = decodeURIComponent(escape(atob(paddedCode)));
+                        const decodedData = new TextDecoder().decode(
+                            Uint8Array.from(atob(paddedCode), char => char.charCodeAt(0))
+                        );
                         const languageData = JSON.parse(decodedData);
 
                         // 获取翻译歌词 (type === 1)
@@ -191,16 +212,19 @@ export default function useLyricsHandler(t) {
     // 滚动到当前歌词行
     const scrollToCurrentLine = (lineIndex) => {
         if (currentLineIndex === lineIndex) return;
-        
+
         currentLineIndex = lineIndex;
-        const lyricsContainer = document.getElementById('lyrics-container');
-        if (!lyricsContainer) return false;
-        const containerHeight = lyricsContainer.offsetHeight;
-        const lineElement = document.querySelectorAll('.line-group')[lineIndex];
-        if (lineElement) {
-            const lineHeight = lineElement.offsetHeight;
-            scrollAmount.value = -lineElement.offsetTop + (containerHeight / 2) - (lineHeight / 2);
-        }
+        // 当前行用 font-size 放大会改变各行高度，须等 DOM 应用放大后再测量，否则用旧布局定位会偏移
+        nextTick(() => {
+            const lyricsContainer = document.getElementById('lyrics-container');
+            if (!lyricsContainer) return;
+            const containerHeight = lyricsContainer.offsetHeight;
+            const lineElement = document.querySelectorAll('.line-group')[lineIndex];
+            if (lineElement) {
+                const lineHeight = lineElement.offsetHeight;
+                scrollAmount.value = -lineElement.offsetTop + (containerHeight / 2) - (lineHeight / 2) - 32;
+            }
+        });
     };
 
     // 高亮当前字符

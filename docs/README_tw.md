@@ -1,9 +1,15 @@
 > **注意**: 此繁體中文文檔可能更新不及時，最新內容請參考[簡體中文版本](https://github.com/iAJue/MoeKoeMusic/README.md)。
 <br />
 <p align="center">
-<img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/logo.png "alt="Logo"width="156"height="156">
+<img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/hero.png "alt="hero"width="250"height="250">
 <h2 align="center"style="font-weight: 600">MoeKoe Music</h2>
-
+  <p align="center">
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases/latest"><img src="https://img.shields.io/github/v/release/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/stargazers"><img src="https://img.shields.io/github/stars/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases"><img src="https://img.shields.io/github/downloads/MoeKoeMusic/MoeKoeMusic/total?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/iAJue"><img src="https://img.shields.io/badge/%F0%9F%8E%89_Create_by_iAJue-with_Love_%E2%9D%A4-pink?style=flat-square" /></a>
+  </p>
 <p align="center">
 一款開源簡潔高顏值的酷狗協力廠商用戶端
 <br />
@@ -41,31 +47,86 @@
 - 🔴  酷狗帳號登入(掃碼/手機/帳號登入)
 - 📃  支持歌詞顯示
 - 📻  每日推薦歌曲
-- 🚫🤝  無任何社交功能
-- 🔗  官方服務器直連，無任何協力廠商API
+- 🔕  無任何社交功能
+- 🔗  官方伺服器直連
 - ✔️  每日自動領取VIP，登入就是VIP
 - 🎨  主題色切換
 - 👋  啟動問候語
 - ⚙️  多平臺支持
-- 🛠  更多特性開發中
+- 🧩  超級外掛系統
+- 🧭  版面個人化設定
+- 🥚  隱藏功能與彩蛋系統
+- 🚀 新手引导系统
+- ✨  更多特性由你來探索
 
 ## 📢 Todo List
 - [x] 📺  支持MV播放
 - [x] 🌚 Light/Dark Mode  自動切換
 - [x] 👆  支持Touch Bar
-- [x] 🖥️  支持PWA，可在Chrome/Edge裏點擊地址欄右邊的 ➕  安裝到電腦
-- [ ] 🎧  支持Mpris
+- [x] 🖥️  支持PWA
 - [x] ⌨️  全域快速鍵
 - [x] 🤟  多語言支持
 - [x] 📻  案頭歌詞
 - [x] ⚙️  系統架構優化
 - [x] 🎶  歌曲、歌單/收藏、取消
 
-更新日誌請查看[Commits](https://github.com/iAJue/MoeKoeMusic/commits/main/)
+[查看更新日誌](http://music.moekoe.cn/changelog.html)
 
-## 📦 ️安裝
+## 📦️ 安裝
 
-訪問本項目的[Releases](https://github.com/iAJue/MoeKoeMusic/releases)頁面下載安裝包。
+### 1. 用戶端安裝
+
+訪問本項目的 [Releases](https://github.com/iAJue/MoeKoeMusic/releases) 頁面下載安裝包。
+
+### 2. WEB端安裝（docker）
+
+* 注意：部署後請開放伺服器對應埠才可使用，或者使用反向代理實現功能變數名稱訪問。
+
+    1. 方式一：快速啟動（推薦）
+
+    ```
+    git clone https://github.com/iAJue/MoeKoeMusic.git
+    cd MoeKoeMusic
+    git submodule update --init --recursive
+    docker compose up -d &
+    ```
+
+    2. ~~方式二：使用docker-compose一鍵安裝 （映像暫未上傳官方）~~
+    
+    ```
+    docker run -d --name MoeKoeMusic -p 8080:8080 -p 6521:6521 -e PORT=6521 -e platform=lite iajue/moekoe-music:latest
+    ```
+
+    3. 方式三：寶塔容器編排
+
+    * 遠端映像，版本可能會落後於官方
+    
+    ```
+    version: '3.3'
+    
+    services:
+      moekoe-music:
+        # 映像地址
+        image: registry.cn-wulanchabu.aliyuncs.com/youngxj/moekoe-music:latest
+        container_name: moekoe-music # 容器名
+        restart: unless-stopped # 自動重啟
+        build:
+          context: .
+          dockerfile: Dockerfile
+        environment:
+          - PORT=6521
+          - platform=lite
+        ports: # 埠映射
+          - "8080:8080"  # 前端服務
+          - "6521:6521"  # 介面服務
+    
+    ```
+    
+    複製上面的內容，貼上到寶塔面板的容器編排裡面，編排名稱為MoeKoeMusic，點擊部署即可。
+### 3. 一鍵部署
+[![使用 EdgeOne Pages 部署](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://edgeone.ai/pages/new?template=https://github.com/iAJue/moekoemusic&install-command=npm%20install&output-directory=dist&root-directory=.%2F&build-command=npm%20run%20build&env=VITE_APP_API_URL)
+
+需在環境變數(VITE_APP_API_URL)中填寫自己的API地址
 
 ## ⚙️  開發
 
@@ -242,7 +303,10 @@ API原始程式碼來自[MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMu
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/6.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/7.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/8.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/9.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/10.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/11.png)
 
 ## 🗓️ Star 歷史
 
-[![Star History Chart](https://api.star-history.com/svg?repos=iAJue/MoeKoeMusic&type=Date)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)
+[![Star History Chart](https://api.star-history.com/chart?repos=MoeKoeMusic/MoeKoeMusic&type=date&legend=top-left&sealed_token=unIw8k8CbengL1CW5XVoW-psSsTQHjp7X6Hchrr9WiEh4baeFZXunI95J9V8nnY8XTWrT8UuvRBXScevzXLRlhTID0-_V200iw9TFChclu1-28maCH3NutInvRl6nQ1jDMXpInpefFixeHYDr8BCn9fYqiNtZAoK30Vi46s7QPQQU80mJstgjgeqWjXf)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)

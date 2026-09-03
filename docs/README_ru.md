@@ -1,9 +1,15 @@
 > **Note**: Этот документ на русском языке может не быть актуальным вовремя. Для актуального материала, пожалуйста, обратитесь к [версии на упрощенном китайском](https://github.com/iAJue/MoeKoeMusic/README.md).
 <br />
 <p align="center">
-    <img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/logo.png" alt="Logo" width="156" height="156">
+    <img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/hero.png" alt="hero" width="250" height="250">
   <h2 align="center" style="font-weight: 600">MoeKoe Music</h2>
-
+  <p align="center">
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases/latest"><img src="https://img.shields.io/github/v/release/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/stargazers"><img src="https://img.shields.io/github/stars/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases"><img src="https://img.shields.io/github/downloads/MoeKoeMusic/MoeKoeMusic/total?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/iAJue"><img src="https://img.shields.io/badge/%F0%9F%8E%89_Create_by_iAJue-with_Love_%E2%9D%A4-pink?style=flat-square" /></a>
+  </p>
   <p align="center">
     Открытый, лаконичный и красивый сторонний клиент для Kugou
     <br />
@@ -41,27 +47,30 @@
 - 🔴 Авторизация через аккаунт Kugou (QR-код/телефон/логин)
 - 📃 Отображение текстов песен
 - 📻 Ежедневные рекомендации
-- 🚫🤝 Никаких социальных функций
-- 🔗 Прямое подключение к официальным серверам, без сторонних API
-- ✔️ Автоматическое получение VIP ежедневно
+- 🔕 Никаких социальных функций
+- 🔗 Прямое подключение к официальным серверам
+- ✔️ Автоматическое получение VIP ежедневно, после входа вы VIP
 - 🎨 Переключение цветовых тем
 - 👋 Приветствие при запуске
 - ⚙️ Поддержка нескольких платформ
-- 🛠 Больше функций в разработке
+- 🧩 Суперсистема плагинов
+- 🧭 Персонализация макета
+- 🥚 Скрытые функции и система пасхалок
+- 🚀 система направляющих новичков
+- ✨ Больше возможностей для самостоятельного открытия
 
 ## 📢 Список задач
 - [x] 📺 Поддержка воспроизведения MV
 - [x] 🌚 Автоматическое переключение Light/Dark Mode
 - [x] 👆 Поддержка Touch Bar
-- [x] 🖥️ Поддержка PWA — можно установить через Chrome/Edge, нажав ➕ в адресной строке
-- [ ] 🎧 Поддержка Mpris
+- [x] 🖥️ Поддержка PWA
 - [x] ⌨️ Глобальные горячие клавиши
 - [x] 🤟 Мультиязычность
 - [x] 📻 Текст песни на рабочем столе
 - [x] ⚙️ Оптимизация архитектуры
 - [x] 🎶 Добавление/удаление песен и плейлистов в избранное
 
-История изменений: [Commits](https://github.com/iAJue/MoeKoeMusic/commits/main/)
+[Посмотреть журнал изменений](http://music.moekoe.cn/changelog.html)
 
 ## 📦️ Установка
 
@@ -78,13 +87,14 @@
     ```
     git clone https://github.com/iAJue/MoeKoeMusic.git
     cd MoeKoeMusic
+    git submodule update --init --recursive
     docker compose up -d &
     ```
 
     2. ~~Способ 2: docker-compose (образ пока не загружен официально)~~
 
     ```
-    docker run -d --name MoeKoeMusic -p 8080:8080 iajue/moekoe-music:latest
+    docker run -d --name MoeKoeMusic -p 8080:8080 -p 6521:6521 -e PORT=6521 -e platform=lite iajue/moekoe-music:latest
     ```
 
     3. Способ 3: Через панель управления
@@ -102,13 +112,15 @@
         build:
           context: .
           dockerfile: Dockerfile
+        environment:
+          - PORT=6521
+          - platform=lite
         ports:
           - "8080:8080"  # Фронтенд
           - "6521:6521"  # API
 
     ```
-
-### 3. Развёртывание в один клик
+### 3. Развертывание в один клик
 [![Развернуть на EdgeOne Pages](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://edgeone.ai/pages/new?template=https://github.com/iAJue/moekoemusic&install-command=npm%20install&output-directory=dist&root-directory=.%2F&build-command=npm%20run%20build&env=VITE_APP_API_URL)
 
 Укажите свой API-адрес в переменной окружения (VITE_APP_API_URL)
@@ -284,8 +296,10 @@ npm run build
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/6.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/7.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/8.png)
-
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/9.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/10.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/11.png)
 
 ## 🗓️ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=iAJue/MoeKoeMusic&type=Date)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)
+[![Star History Chart](https://api.star-history.com/chart?repos=MoeKoeMusic/MoeKoeMusic&type=date&legend=top-left&sealed_token=unIw8k8CbengL1CW5XVoW-psSsTQHjp7X6Hchrr9WiEh4baeFZXunI95J9V8nnY8XTWrT8UuvRBXScevzXLRlhTID0-_V200iw9TFChclu1-28maCH3NutInvRl6nQ1jDMXpInpefFixeHYDr8BCn9fYqiNtZAoK30Vi46s7QPQQU80mJstgjgeqWjXf)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)

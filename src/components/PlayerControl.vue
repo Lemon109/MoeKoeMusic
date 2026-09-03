@@ -15,9 +15,38 @@
             <div class="album-art" @click="toggleLyrics(currentSong.hash, currentTime)">
                 <img v-if="currentSong.img" :src="currentSong.img" alt="Album Art" />
                 <i v-else class="fas fa-music"></i>
+                <span class="album-art-hover-indicator" aria-hidden="true">
+                    <i class="fas fa-angle-double-up"></i>
+                </span>
             </div>
             <div class="song-info" @click="toggleLyrics(currentSong.hash, currentTime)">
-                <div class="song-title" @click.stop="searchSong(currentSong.name)">{{ currentSong?.name || "MoeKoeMusic" }}</div>
+                <div class="song-title-row">
+                    <div class="song-title" @click.stop="searchSong(currentSong.name)">{{ currentSong?.name || "MoeKoeMusic" }}</div>
+                    <div v-if="currentSong?.qualityLabel" class="quality-menu-wrapper" @click.stop>
+                        <button
+                            type="button"
+                            :class="['quality-badge', { clickable: canSwitchQuality }]"
+                            @click.stop="toggleQualityMenu"
+                        >
+                            {{ currentSong.qualityLabel }}
+                        </button>
+                        <transition name="player-menu">
+                            <div v-if="qualityMenuOpen && canSwitchQuality" class="player-menu quality-menu">
+                                <div v-if="!currentSong?.qualityOptions?.length" class="player-menu-item disabled">暂无可选音质</div>
+                                <button
+                                    v-for="option in currentSong.qualityOptions"
+                                    :key="`${option.value}-${option.hash}`"
+                                    type="button"
+                                    class="player-menu-item"
+                                    :class="{ active: isCurrentQualityOption(option) }"
+                                    @click.stop="switchQuality(option)"
+                                >
+                                    {{ option.label }}
+                                </button>
+                            </div>
+                        </transition>
+                    </div>
+                </div>
                 <div class="artist" @click.stop="searchSong(currentSong.author)">{{ currentSong?.author || "MoeJue" }}</div>
             </div>
             <div class="controls">
@@ -35,15 +64,17 @@
                 <button class="extra-btn" :title="t('zhuo-mian-ge-ci')" v-if="isElectron()" @click="desktopLyrics"><i
                         class="fas">词</i></button>
                 <div class="playback-speed">
-                    <button class="extra-btn" @click="toggleSpeedMenu" :title="t('bo-fang-su-du')">
+                    <button class="extra-btn speed-btn" @click="toggleSpeedMenu" :title="t('bo-fang-su-du')">
                         <i class="fas fa-tachometer-alt"></i>
                     </button>
-                    <div v-if="showSpeedMenu" class="speed-menu">
-                        <div v-for="speed in playbackSpeeds" :key="speed" class="speed-option"
-                            :class="{ active: currentSpeed === speed }" @click="changePlaybackSpeed(speed)">
-                            {{ speed }}x
+                    <transition name="player-menu">
+                        <div v-if="showSpeedMenu" class="player-menu speed-menu">
+                            <div v-for="speed in playbackSpeeds" :key="speed" class="player-menu-item speed-option"
+                                :class="{ active: currentSpeed === speed }" @click="changePlaybackSpeed(speed)">
+                                {{ speed }}x
+                            </div>
                         </div>
-                    </div>
+                    </transition>
                 </div>
                 <button class="extra-btn" :title="t('wo-xi-huan')" @click="playlistSelect.toLike()"><i
                         class="fas fa-heart"></i></button>
@@ -51,21 +82,44 @@
                         class="fas fa-add"></i></button>
                 <button class="extra-btn" :title="t('fen-xiang-ge-qu')" @click="share(currentSong.name, currentSong.hash)"><i
                         class="fas fa-share"></i></button>
-                <button class="extra-btn" @click="togglePlaybackMode">
-                    <i v-if="currentPlaybackModeIndex != '2'" :class="currentPlaybackMode.icon"
-                        :title="currentPlaybackMode.title"></i>
-                    <span v-else class="loop-icon" :title="currentPlaybackMode.title">
-                        <i class="fas fa-repeat"></i>
-                        <sup>1</sup>
-                    </span>
-                </button>
+                <div class="playback-mode">
+                    <button class="extra-btn" @click="togglePlaybackMode">
+                        <i v-if="currentPlaybackModeIndex != '2'" :class="currentPlaybackMode.icon"
+                            :title="currentPlaybackMode.title"></i>
+                        <span v-else class="loop-icon" :title="currentPlaybackMode.title">
+                            <i class="fas fa-repeat"></i>
+                            <sup>1</sup>
+                        </span>
+                    </button>
+                    <div class="player-menu playback-mode-menu">
+                        <button
+                            v-for="(mode, index) in playbackModes"
+                            :key="mode.title"
+                            type="button"
+                            class="player-menu-item playback-mode-option"
+                            :class="{ active: currentPlaybackModeIndex === index }"
+                            :title="mode.title"
+                            @click.stop="setPlaybackMode(index)"
+                        >
+                            <i v-if="index !== 2" :class="mode.icon"></i>
+                            <span v-else class="loop-icon">
+                                <i class="fas fa-repeat"></i>
+                                <sup>1</sup>
+                            </span>
+                            <span>{{ mode.title }}</span>
+                        </button>
+                    </div>
+                </div>
                 <button class="extra-btn" :title="t('bo-fang-lie-biao')" @click="queueList.openQueue()"><i class="fas fa-list"></i></button>
                 <!-- 音量控制 -->
                 <div class="volume-control" @wheel="handleVolumeScroll">
                     <i :class="isMuted ? 'fas fa-volume-mute' : 'fas fa-volume-up'" @click="toggleMute"></i>
-                    <div class="volume-slider" @mousedown="onDragStart">
-                        <div class="volume-progress" :style="{ width: volume + '%' }"></div>
-                        <input type="range" min="0" max="100" v-model="volume" @input="changeVolume" />
+                    <div class="volume-slider-wrap" :class="{ 'show-volume-value': isDragging }">
+                        <div class="volume-value" :style="volumeValueStyle">{{ volumePercentText }}</div>
+                        <div class="volume-slider" @mousedown="onDragStart">
+                            <div class="volume-progress" :style="{ width: volume + '%' }"></div>
+                            <input type="range" min="0" max="100" v-model="volume" @input="changeVolume" />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -78,12 +132,22 @@
 
     <!-- 全屏歌词界面 -->
     <transition name="slide-up">
-        <div v-if="showLyrics" class="lyrics-bg"
-            :style="(lyricsBackground == 'on' ? ({ backgroundImage: `url(${currentSong?.img || 'https://random.MoeJue.cn/randbg.php'})` }) : ({ background: 'var(--secondary-color)' }))">
-            <div class="lyrics-screen">
-                <div class="close-btn">
-                    <i class="fas fa-chevron-down" @click="toggleLyrics(currentSong.hash, currentTime)"></i>
-                </div>
+        <div v-if="showLyrics" class="lyrics-bg" :style="lyricsBackgroundStyle">
+            <template v-if="lyricsBackground === 'cover'">
+                <div
+                    v-for="(image, index) in lyricsBackgroundImages"
+                    :key="image"
+                    class="lyrics-bg-image"
+                    :class="{ active: index === lyricsBackgroundImageIndex }"
+                    :style="{ backgroundImage: `url(${image})` }"
+                ></div>
+            </template>
+            <div class="lyrics-screen" :class="{ 'cover-background': lyricsBackground === 'cover' }">
+                <button class="close-btn" type="button" aria-label="关闭歌词" @click="toggleLyrics(currentSong.hash, currentTime)">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+                <FullscreenLyricsSettings v-model="fullscreenLyricsSettings" @change="handleFullscreenLyricsSettingsChange" />
+
                 <div class="lyrics-mode-btn" v-if="hasMultiLyricsMode" @click="switchLyricsMode" :title="lyricsMode === 'translation' ? t('qie-huan-dao-yin-yi') : t('qie-huan-dao-fan-yi')">
                     <i class="fas fa-language"></i>
                 </div>
@@ -140,30 +204,67 @@
                         <button class="control-btn" :title="t('xia-yi-shou')" @click="playSongFromQueue('next')">
                             <i class="fas fa-step-forward"></i>
                         </button>
-                        <button class="control-btn" :title="t('qie-huan-bo-fang-mo-shi')" @click="togglePlaybackMode">
-                            <i v-if="currentPlaybackModeIndex != '2'" :class="currentPlaybackMode.icon" :title="currentPlaybackMode.title"></i>
-                            <span v-else class="loop-icon" :title="currentPlaybackMode.title">
-                                <i class="fas fa-repeat"></i>
-                                <sup>1</sup>
-                            </span>
-                        </button>
+                        <div class="playback-mode">
+                            <button class="control-btn" :title="t('qie-huan-bo-fang-mo-shi')" @click="togglePlaybackMode">
+                                <i v-if="currentPlaybackModeIndex != '2'" :class="currentPlaybackMode.icon" :title="currentPlaybackMode.title"></i>
+                                <span v-else class="loop-icon" :title="currentPlaybackMode.title">
+                                    <i class="fas fa-repeat"></i>
+                                    <sup>1</sup>
+                                </span>
+                            </button>
+                            <div class="player-menu playback-mode-menu">
+                                <button
+                                    v-for="(mode, index) in playbackModes"
+                                    :key="mode.title"
+                                    type="button"
+                                    class="player-menu-item playback-mode-option"
+                                    :class="{ active: currentPlaybackModeIndex === index }"
+                                    :title="mode.title"
+                                    @click.stop="setPlaybackMode(index)"
+                                >
+                                    <i v-if="index !== 2" :class="mode.icon"></i>
+                                    <span v-else class="loop-icon">
+                                        <i class="fas fa-repeat"></i>
+                                        <sup>1</sup>
+                                    </span>
+                                    <span>{{ mode.title }}</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div id="lyrics-container" @wheel="handleLyricsWheel">
-                    <div v-if="lyricsData.length > 0" id="lyrics"
-                        :style="{ fontSize: lyricsFontSize, transform: `translateY(${scrollAmount ? scrollAmount + 'px' : '50%'})` }">
-                        <div class="line-group" v-for="(lineData, lineIndex) in lyricsData" :key="lineIndex">
-                            <div class="line" @click="handleLyricsClick(lineIndex)" :class="{ click: lyricsFlag, [lyricsAlign]: true }">
-                                <span v-for="(charData, charIndex) in lineData.characters" :key="charIndex" class="char"
-                                    :class="{ highlight: charData.highlighted }">
-                                    {{ charData.char }}
-                                </span>
-                            </div>
-                            <div class="line translated" :class="{ [lyricsAlign]: true }" v-show="lineData.translated && lyricsMode === 'translation'">{{ lineData.translated }}</div>
-                            <div class="line romanized" :class="{ [lyricsAlign]: true }" v-show="lineData.romanized && lyricsMode === 'romanization'">{{ lineData.romanized }}</div>
+                    <template v-if="lyricsData.length > 0">
+                        <div v-if="lyricsDisplayMode === 'single'" id="lyrics" class="single-lyrics" :class="{ 'line-highlight-mode': lyricsHighlightMode === 'line', 'lyrics-align-left': lyricsAlign === 'left' }"
+                            :style="{ fontSize: lyricsFontSize, fontFamily: lyricsFontFamily }">
+                            <transition name="single-lyric-fade" appear>
+                                <div class="line-group" v-if="currentSingleLyricsLine" :key="singleLyricsLineIndex">
+                                    <div class="line" @click="handleLyricsClick(singleLyricsLineIndex)" :class="{ click: lyricsFlag, 'line-highlight': isCurrentLyricsLine(singleLyricsLineIndex), [lyricsAlign]: true }">
+                                        <span v-for="(charData, charIndex) in currentSingleLyricsLine.characters" :key="charIndex" class="char"
+                                            :class="{ highlight: lyricsHighlightMode === 'char' && charData.highlighted }">
+                                            {{ charData.char }}
+                                        </span>
+                                    </div>
+                                    <div class="line translated" :class="{ 'line-highlight': isCurrentLyricsLine(singleLyricsLineIndex), [lyricsAlign]: true }" v-show="currentSingleLyricsLine.translated && lyricsMode === 'translation'">{{ currentSingleLyricsLine.translated }}</div>
+                                    <div class="line romanized" :class="{ 'line-highlight': isCurrentLyricsLine(singleLyricsLineIndex), [lyricsAlign]: true }" v-show="currentSingleLyricsLine.romanized && lyricsMode === 'romanization'">{{ currentSingleLyricsLine.romanized }}</div>
+                                </div>
+                            </transition>
                         </div>
-                    </div>
-                    <div v-else class="no-lyrics">{{ SongTips }}</div>
+                        <div v-else id="lyrics" :class="{ 'line-highlight-mode': lyricsHighlightMode === 'line', 'lyrics-align-left': lyricsAlign === 'left' }"
+                            :style="{ fontSize: lyricsFontSize, fontFamily: lyricsFontFamily, transform: `translateY(${scrollAmount ? scrollAmount + 'px' : '50%'})` }">
+                            <div class="line-group" :class="{ 'current-line-group': currentLyricsLineIndex === lineIndex }" v-for="(lineData, lineIndex) in lyricsData" :key="lineIndex">
+                                <div class="line" @click="handleLyricsClick(lineIndex)" :class="{ click: lyricsFlag, 'line-highlight': isCurrentLyricsLine(lineIndex), [lyricsAlign]: true }">
+                                    <span v-for="(charData, charIndex) in lineData.characters" :key="charIndex" class="char"
+                                        :class="{ highlight: lyricsHighlightMode === 'char' && charData.highlighted }">
+                                        {{ charData.char }}
+                                    </span>
+                                </div>
+                                <div class="line translated" :class="{ 'line-highlight': isCurrentLyricsLine(lineIndex), [lyricsAlign]: true }" v-show="lineData.translated && lyricsMode === 'translation'">{{ lineData.translated }}</div>
+                                <div class="line romanized" :class="{ 'line-highlight': isCurrentLyricsLine(lineIndex), [lyricsAlign]: true }" v-show="lineData.romanized && lyricsMode === 'romanization'">{{ lineData.romanized }}</div>
+                            </div>
+                        </div>
+                    </template>
+                    <div v-else class="no-lyrics" :style="{ fontFamily: lyricsFontFamily }">{{ SongTips }}</div>
                 </div>
             </div>
         </div>
@@ -180,8 +281,11 @@ import { useMusicQueueStore } from '../stores/musicQueue';
 import { useI18n } from 'vue-i18n';
 import PlaylistSelectModal from './PlaylistSelectModal.vue';
 import QueueList from './QueueList.vue';
+import FullscreenLyricsSettings from './FullscreenLyricsSettings.vue';
 import { useRouter } from 'vue-router';
 import { getCover, getAudioOutputDeviceSignature, share } from '../utils/utils';
+import { get } from '../utils/request';
+import { createTeamEventPopup, actions as teamEventActions } from '@/utils/teamEvent';
 
 // 从统一入口导入所有模块
 import {
@@ -191,20 +295,54 @@ import {
     usePlaybackMode,
     useMediaSession,
     useSongQueue,
-    useHelpers
+    useHelpers,
+    setAudioOutputDevice
 } from './player';
 
 // 基础设置
 const queueList = ref(null);
 const playlistSelect = ref(null);
+const qualityMenuOpen = ref(false);
 const { t } = useI18n();
 const router = useRouter();
 const musicQueueStore = useMusicQueueStore();
 const playlists = ref([]);
 const currentTime = ref(0);
-const lyricsFontSize = ref('24px');
-const lyricsAlign = ref('center');
-const lyricsBackground = ref('on');
+const fullscreenLyricsDefaultSettings = {
+    background: 'on',
+    fontSize: '24px',
+    align: 'center',
+    highlightMode: 'char',
+    displayMode: 'scroll'
+};
+const fullscreenLyricsSettings = ref({ ...fullscreenLyricsDefaultSettings });
+const lyricsFontSize = computed(() => fullscreenLyricsSettings.value.fontSize);
+const desktopLyricsFont = ref('');
+const fontFamilyFallback = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif";
+const escapeFontFamily = (fontFamily) => String(fontFamily).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+const lyricsFontFamily = computed(() => {
+    return desktopLyricsFont.value
+        ? `"${escapeFontFamily(desktopLyricsFont.value)}", ${fontFamilyFallback}`
+        : fontFamilyFallback;
+});
+const lyricsAlign = computed(() => fullscreenLyricsSettings.value.align);
+const lyricsBackground = computed(() => fullscreenLyricsSettings.value.background);
+const lyricsHighlightMode = computed(() => fullscreenLyricsSettings.value.highlightMode || 'char');
+const lyricsDisplayMode = computed(() => fullscreenLyricsSettings.value.displayMode || 'scroll');
+const lyricsDefaultBackgroundImage = computed(() => currentSong.value?.img || 'https://random.MoeJue.cn/randbg');
+const lyricsCoverImages = ref([]);
+const lyricsBackgroundImageIndex = ref(0);
+const lyricsBackgroundImages = computed(() => {
+    if (lyricsBackground.value !== 'cover') return [];
+    return lyricsCoverImages.value.length ? lyricsCoverImages.value : [lyricsDefaultBackgroundImage.value];
+});
+const lyricsBackgroundStyle = computed(() => {
+    if (lyricsBackground.value === 'off' || lyricsBackground.value === 'cover') {
+        return { background: 'var(--secondary-color)' };
+    }
+
+    return { backgroundImage: `url(${lyricsDefaultBackgroundImage.value})` };
+});
 const sliderElement = ref(null);
 const coverMode = ref(localStorage.getItem('lyrics-cover-mode') || 'square');
 
@@ -231,10 +369,70 @@ const easterEggImage = computed(() => {
 });
 
 const easterEggClass = computed(() => easterEggImage.value?.class || '');
+const canSwitchQuality = computed(() => {
+    return !!currentSong.value?.hash && !currentSong.value?.isLocal && !currentSong.value?.isCloud;
+});
+const isCurrentQualityOption = (option) => {
+    return currentSong.value?.resolvedQuality === option.value && currentSong.value?.playHash === option.hash;
+};
+const toggleQualityMenu = () => {
+    if (!canSwitchQuality.value) return;
+
+    qualityMenuOpen.value = !qualityMenuOpen.value;
+};
+const switchQuality = async (option) => {
+    if (!canSwitchQuality.value || isCurrentQualityOption(option)) {
+        qualityMenuOpen.value = false;
+        return;
+    }
+
+    const previousTime = audio.currentTime || 0;
+    const wasPlaying = playing.value;
+
+    qualityMenuOpen.value = false;
+    clearAutoSwitchTimer();
+    audio.pause();
+    playing.value = false;
+
+    const result = await addSongToQueue(
+        currentSong.value.hash,
+        currentSong.value.name,
+        currentSong.value.img,
+        currentSong.value.author,
+        false,
+        option.value,
+        currentSong.value.qualityOptions
+    );
+
+    if (result && result.song) {
+        await playSong(result.song);
+        if (audio.duration) {
+            audio.currentTime = Math.min(previousTime, audio.duration || previousTime);
+        } else {
+            audio.addEventListener('loadedmetadata', () => {
+                audio.currentTime = Math.min(previousTime, audio.duration || previousTime);
+            }, { once: true });
+        }
+
+        if (!wasPlaying) {
+            pausePlayback();
+        }
+    } else if (result && result.shouldPlayNext) {
+        handleAutoSwitch();
+    }
+};
 
 // 初始化事件回调
 const onSongEnd = () => {
-    if (currentPlaybackModeIndex.value == 2) return;
+    if (currentPlaybackModeIndex.value == 2) return; // 单曲循环
+    // 顺序播放：最后一首播放完毕后停止
+    if (currentPlaybackModeIndex.value == 3) {
+        const currentIndex = musicQueueStore.queue.findIndex(song => song.hash === currentSong.value.hash);
+        if (currentIndex === musicQueueStore.queue.length - 1) {
+            playing.value = false;
+            return;
+        }
+    }
     playSongFromQueue('next');
 };
 
@@ -261,8 +459,6 @@ const updateCurrentTime = throttle(() => {
     const desktopLyricsEnabled = savedConfig?.desktopLyrics === 'on';
 
     if (audio) {
-        if (savedConfig?.lyricsAlign != lyricsAlign.value) lyricsAlign.value = savedConfig.lyricsAlign;
-
         if (hasLyricsData) {
             highlightCurrentChar(audio.currentTime, !lyricsFlag.value);
         }
@@ -282,6 +478,7 @@ const updateCurrentTime = throttle(() => {
                     const lyricsPayload = hasLyricsData ? JSON.parse(JSON.stringify(lyricsData.value)) : [];
                     window.electron.ipcRenderer.send('lyrics-data', {
                         currentTime: audio.currentTime,
+                        playing: playing.value,
                         lyricsData: lyricsPayload,
                         currentSongHash: currentSong.value?.hash || '',
                         currentLyric: currentLine
@@ -290,6 +487,7 @@ const updateCurrentTime = throttle(() => {
                     // 如果序列化失败，只发送必要的数据
                     window.electron.ipcRenderer.send('lyrics-data', {
                         currentTime: audio.currentTime,
+                        playing: playing.value,
                         lyricsData: [],
                         currentSongHash: currentSong.value?.hash || '',
                         currentLyric: currentLine
@@ -320,8 +518,7 @@ const updateCurrentTime = throttle(() => {
     }
 
     if (!hasLyricsData && isElectron() && (desktopLyricsEnabled || statusBarLyricsEnabled || savedConfig?.apiMode === 'on')) {
-        if (isLyrics === false) return;
-        getCurrentLyrics();
+        retryMissingLyrics();
     }
 
     localStorage.setItem('player_progress', audio.currentTime);
@@ -329,10 +526,48 @@ const updateCurrentTime = throttle(() => {
 
 // 初始化各个模块
 const audioController = useAudioController({ onSongEnd, updateCurrentTime });
-const { playing, isMuted, volume, changeVolume, audio, playbackRate, setPlaybackRate, applyLoudnessNormalization, ensureAudioContextRunning, toggleLoudnessNormalization, loudnessNormalizationEnabled, currentLoudnessGain, webAudioInitialized } = audioController;
+const { playing, isMuted, volume, changeVolume, audio, playbackRate, setPlaybackRate, applyLoudnessNormalization, ensureAudioContextRunning, toggleLoudnessNormalization, loudnessNormalizationEnabled, currentLoudnessGain, webAudioInitialized, amplitudeToSlider } = audioController;
+const volumePercentText = computed(() => `${Math.round(volume.value)}%`);
+const volumeValueStyle = computed(() => {
+    const percent = Math.round(volume.value);
+    const offset = percent < 16 ? 0 : percent > 84 ? -100 : -50;
+    const arrowOffset = percent < 16 ? '10px' : percent > 84 ? 'calc(100% - 10px)' : '50%';
+
+    return {
+        left: `${percent}%`,
+        '--volume-value-offset': `${offset}%`,
+        '--volume-arrow-offset': arrowOffset
+    };
+});
 
 const lyricsHandler = useLyricsHandler(t);
 const { lyricsData, originalLyrics, showLyrics, scrollAmount, SongTips, lyricsMode, toggleLyrics, getLyrics, highlightCurrentChar, resetLyricsHighlight, getCurrentLineText, scrollToCurrentLine, toggleLyricsMode } = lyricsHandler;
+
+const currentLyricsLineIndex = computed(() => {
+    if (!lyricsData.value || lyricsData.value.length === 0) return -1;
+
+    const currentTimeMs = currentTime.value * 1000;
+    for (let index = 0; index < lyricsData.value.length; index++) {
+        const firstChar = lyricsData.value[index]?.characters?.[0];
+        const nextFirstChar = lyricsData.value[index + 1]?.characters?.[0];
+
+        if (firstChar && currentTimeMs >= firstChar.startTime && (!nextFirstChar || currentTimeMs < nextFirstChar.startTime)) {
+            return index;
+        }
+    }
+
+    return -1;
+});
+
+const singleLyricsLineIndex = computed(() => {
+    if (!lyricsData.value || lyricsData.value.length === 0) return -1;
+    return currentLyricsLineIndex.value >= 0 ? currentLyricsLineIndex.value : 0;
+});
+const currentSingleLyricsLine = computed(() => {
+    if (singleLyricsLineIndex.value < 0) return null;
+    return lyricsData.value[singleLyricsLineIndex.value] || null;
+});
+const isCurrentLyricsLine = (lineIndex) => lyricsHighlightMode.value === 'line' && currentLyricsLineIndex.value === lineIndex;
 
 // 获取当前播放时间的歌词行索引
 const getCurrentLineIndex = (currentTime) => {
@@ -350,15 +585,136 @@ const getCurrentLineIndex = (currentTime) => {
 };
 
 const progressBar = useProgressBar(audio, resetLyricsHighlight);
-const { progressWidth, isProgressDragging, showTimeTooltip, tooltipPosition, tooltipTime, climaxPoints, formatTime, getMusicHighlights, onProgressDragStart, updateProgressFromEvent, updateTimeTooltip, hideTimeTooltip } = progressBar;
+const { progressWidth, isProgressDragging, showTimeTooltip, tooltipPosition, tooltipTime, climaxPoints, formatTime, getMusicHighlights, clearMusicHighlights, onProgressDragStart, updateProgressFromEvent, updateTimeTooltip, hideTimeTooltip } = progressBar;
 
 const playbackMode = usePlaybackMode(t, audio);
-const { currentPlaybackModeIndex, currentPlaybackMode, playedSongsStack, currentStackIndex, togglePlaybackMode } = playbackMode;
+const { playbackModes, currentPlaybackModeIndex, currentPlaybackMode, playedSongsStack, currentStackIndex, togglePlaybackMode, setPlaybackMode } = playbackMode;
 
 const mediaSession = useMediaSession();
 
 const songQueue = useSongQueue(t, musicQueueStore, queueList);
-const { currentSong, NextSong, addSongToQueue, addCloudMusicToQueue, addLocalMusicToQueue, addLocalPlaylistToQueue, addToNext, getPlaylistAllSongs, addPlaylistToQueue, addCloudPlaylistToQueue } = songQueue;
+const { currentSong, NextSong, addSongToQueue, addCloudMusicToQueue, addLocalMusicToQueue, addLocalPlaylistToQueue, addToNext, getPlaylistAllSongs, addPlaylistToQueue, addCloudPlaylistToQueue, restoreLocalSongCover } = songQueue;
+
+const resetTrackTimeline = () => {
+    currentTime.value = 0;
+    progressWidth.value = 0;
+    clearMusicHighlights();
+    resetLyricsHighlight(0);
+    localStorage.setItem('player_progress', '0');
+};
+
+watch(
+    () => currentSong.value?.hash || '',
+    (hash, previousHash) => {
+        if (previousHash && hash !== previousHash) resetTrackTimeline();
+    }
+);
+
+let lyricsBackgroundCarouselTimer = null;
+let lyricsCoverImagesRequestId = 0;
+
+const normalizeLyricsCoverImageUrl = (url) => {
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return '';
+    return url.replace(/\{size\}/g, '1080');
+};
+
+const collectLyricsCoverImageUrls = (imgs) => {
+    const urls = [];
+    const visit = (value) => {
+        if (!value) return;
+
+        if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+        }
+
+        if (typeof value === 'object') {
+            const url = normalizeLyricsCoverImageUrl(
+                value.sizable_portrait ||
+                value.sizable_cover ||
+                value.url ||
+                value.img ||
+                value.cover ||
+                value.portrait
+            );
+            if (url) {
+                urls.push(url);
+                return;
+            }
+
+            Object.values(value).forEach(visit);
+        }
+    };
+
+    visit(imgs);
+    return urls;
+};
+
+const extractLyricsCoverImages = (response) => {
+    const images = [];
+    const groups = Array.isArray(response?.data) ? response.data : [];
+
+    groups.forEach((group) => {
+        const authors = Array.isArray(group?.author) ? group.author : [];
+        const albums = Array.isArray(group?.album) ? group.album : [];
+
+        authors.forEach((author) => {
+            images.push(...collectLyricsCoverImageUrls(author?.imgs));
+        });
+        albums.forEach((album) => {
+            images.push(...collectLyricsCoverImageUrls(album?.imgs));
+        });
+    });
+
+    return [...new Set(images)];
+};
+
+const stopLyricsBackgroundCarousel = () => {
+    if (lyricsBackgroundCarouselTimer) {
+        clearInterval(lyricsBackgroundCarouselTimer);
+        lyricsBackgroundCarouselTimer = null;
+    }
+};
+
+const startLyricsBackgroundCarousel = () => {
+    stopLyricsBackgroundCarousel();
+    lyricsBackgroundImageIndex.value = 0;
+
+    if (lyricsBackground.value !== 'cover' || !showLyrics.value || lyricsBackgroundImages.value.length <= 1) return;
+
+    lyricsBackgroundCarouselTimer = setInterval(() => {
+        const total = lyricsBackgroundImages.value.length;
+        if (total <= 1) {
+            stopLyricsBackgroundCarousel();
+            return;
+        }
+        lyricsBackgroundImageIndex.value = (lyricsBackgroundImageIndex.value + 1) % total;
+    }, 4000);
+};
+
+const loadLyricsCoverImages = async () => {
+    const hash = currentSong.value?.hash;
+    lyricsCoverImages.value = [];
+    lyricsBackgroundImageIndex.value = 0;
+
+    if (lyricsBackground.value !== 'cover' || !showLyrics.value || !hash || String(hash).startsWith('local_')) {
+        startLyricsBackgroundCarousel();
+        return;
+    }
+
+    const requestId = ++lyricsCoverImagesRequestId;
+    try {
+        const response = await get(`/images?hash=${encodeURIComponent(hash)}`);
+        if (requestId !== lyricsCoverImagesRequestId || currentSong.value?.hash !== hash || lyricsBackground.value !== 'cover') return;
+
+        lyricsCoverImages.value = extractLyricsCoverImages(response);
+    } catch (error) {
+        console.warn('[PlayerControl] 获取歌词背景封面失败:', error);
+        lyricsCoverImages.value = [];
+    } finally {
+        if (requestId === lyricsCoverImagesRequestId) startLyricsBackgroundCarousel();
+    }
+};
 
 // 添加自动切换定时器引用
 let autoSwitchTimer = null;
@@ -366,7 +722,7 @@ let autoSwitchTimer = null;
 let lyricScrollTimer = null;
 // 自动切换计数器和最大重试次数
 let autoSwitchCount = 0;
-const maxAutoSwitchRetries = 3;
+const maxAutoSwitchRetries = 5;
 
 // 处理自动切换逻辑的函数
 const handleAutoSwitch = () => {
@@ -409,15 +765,66 @@ const restoreLyricsScroll = throttle(() => {
 
 // 获取歌词的节流函数
 let isLyrics;
-const getCurrentLyrics = throttle(async() => {
-    if (currentSong.value.hash) {
-        isLyrics = await getLyrics(currentSong.value.hash);
+let pendingLyricsHash = '';
+let pendingLyricsPromise = null;
+let lastLyricsRetryAt = 0;
+const getCurrentLyrics = async () => {
+    const hash = currentSong.value.hash;
+    if (!hash) return false;
+    if (String(hash).startsWith('local_')) {
+        SongTips.value = t('zan-wu-ge-ci');
+        return false;
     }
-}, 1000);
+
+    if (pendingLyricsHash === hash && pendingLyricsPromise) {
+        return pendingLyricsPromise;
+    }
+
+    pendingLyricsHash = hash;
+    pendingLyricsPromise = (async () => {
+        isLyrics = await getLyrics(hash);
+        return isLyrics;
+    })();
+
+    try {
+        return await pendingLyricsPromise;
+    } finally {
+        if (pendingLyricsHash === hash) {
+            pendingLyricsHash = '';
+            pendingLyricsPromise = null;
+        }
+    }
+};
+const retryMissingLyrics = () => {
+    if (isLyrics === false || pendingLyricsPromise) return;
+
+    const now = Date.now();
+    if (now - lastLyricsRetryAt < 1000) return;
+
+    lastLyricsRetryAt = now;
+    getCurrentLyrics();
+};
 
 // 计算属性
 const formattedCurrentTime = computed(() => formatTime(currentTime.value));
 const formattedDuration = computed(() => formatTime(currentSong.value?.timeLength || 0));
+
+watch(() => currentSong.value.hash, () => {
+    qualityMenuOpen.value = false;
+    loadLyricsCoverImages();
+});
+
+watch(() => [lyricsBackground.value, showLyrics.value], () => {
+    if (lyricsBackground.value === 'cover' && showLyrics.value) {
+        loadLyricsCoverImages();
+        return;
+    }
+
+    lyricsCoverImagesRequestId++;
+    lyricsCoverImages.value = [];
+    lyricsBackgroundImageIndex.value = 0;
+    stopLyricsBackgroundCarousel();
+});
 
 // 判断是否有多种歌词模式（同时有翻译和音译）
 const hasMultiLyricsMode = computed(() => {
@@ -426,6 +833,19 @@ const hasMultiLyricsMode = computed(() => {
     // 检查是否至少有一行同时包含翻译和音译
     return lyricsData.value.some(line => line.translated && line.romanized);
 });
+
+const handleFullscreenLyricsSettingsChange = () => {
+    currentTime.value = audio.currentTime || 0;
+    resetLyricsHighlight(currentTime.value);
+    if (lyricsDisplayMode.value !== 'scroll') return;
+
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+            const currentLineIndex = getCurrentLineIndex(audio.currentTime);
+            if (currentLineIndex >= 0) scrollToCurrentLine(currentLineIndex);
+        });
+    }
+};
 
 // 切换歌词显示模式（翻译/音译）
 const switchLyricsMode = () => {
@@ -436,6 +856,16 @@ const switchLyricsMode = () => {
 const toggleCoverMode = () => {
     coverMode.value = coverMode.value === 'square' ? 'vinyl' : 'square';
     localStorage.setItem('lyrics-cover-mode', coverMode.value);
+};
+
+const isBlobUrl = (url) => typeof url === 'string' && url.startsWith('blob:');
+
+const isLocalSong = (song) => !!song?.isLocal || String(song?.hash || '').startsWith('local_');
+
+const toPlayerSong = (song) => {
+    if (!isLocalSong(song)) return song;
+    const { file, handle, ...playerSong } = song;
+    return playerSong;
 };
 
 // 播放歌曲
@@ -453,7 +883,9 @@ const playSong = async (song) => {
             return;
         }
 
-        currentSong.value = structuredClone(song);
+        resetTrackTimeline();
+
+        currentSong.value = structuredClone(toPlayerSong(song));
 
         // 应用响度规格化（如果已启用 Web Audio）
         if (song.loudnessNormalization) {
@@ -486,6 +918,10 @@ const playSong = async (song) => {
                 playing.value = true;
             }
         } catch (playError) {
+            if(playError.name.includes('NotSupportedError')) {
+                console.error('[PlayerControl] 播放失败，浏览器不支持该音频格式,正在降低音质重试:', playError);
+                return;
+            }
             console.warn('[PlayerControl] 播放被中断，尝试重新播放:', playError);
             // 等待一小段时间后重试
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -509,14 +945,27 @@ const playSong = async (song) => {
 
         // 清空歌词数据
         lyricsData.value = [];
-        if(song?.isLocal) return;
+        originalLyrics.value = '';
+        isLyrics = undefined;
+        lastLyricsRetryAt = 0;
+        if(isLocalSong(song)) {
+            const { file, handle, ...savedLocalSong } = currentSong.value;
+            localStorage.setItem('current_song', JSON.stringify({
+                ...savedLocalSong,
+                url: ''
+            }));
+            window.electron?.ipcRenderer?.send('current-song-updated');
+            return;
+        }
         // 保存当前歌曲到本地存储
         localStorage.setItem('current_song', JSON.stringify(currentSong.value));
+        window.electron?.ipcRenderer?.send('current-song-updated');
 
         getVip();
         // 获取歌词
         getCurrentLyrics();
-        getMusicHighlights(currentSong.value.hash);
+        const highlightHash = currentSong.value.hash;
+        getMusicHighlights(highlightHash, () => currentSong.value?.hash === highlightHash);
     } catch (error) {
         console.error('[PlayerControl] 播放音乐时发生错误:', error);
         playing.value = false;
@@ -524,15 +973,17 @@ const playSong = async (song) => {
     }
 };
 
-// 切换播放/暂停
-const togglePlayPause = async () => {
+// 恢复播放（不创建新 Audio，复用现有 src / 队列 URL 的恢复逻辑）
+const resumePlayback = async () => {
+    if (!audio.paused) return true;
+
     if (!currentSong.value.hash) {
         console.log('[PlayerControl] 没有当前歌曲，尝试播放队列中的下一首');
         playSongFromQueue('next');
-        return;
+        return false;
     } else if (!audio.src) {
         console.log('[PlayerControl] 音频源为空，尝试重新设置');
-        if (currentSong.value.url) {
+        if (currentSong.value.url && !isLocalSong(currentSong.value)) {
             console.log('[PlayerControl] 从当前歌曲获取URL:', currentSong.value.url);
             audio.src = currentSong.value.url;
         } else {
@@ -540,43 +991,73 @@ const togglePlayPause = async () => {
             const songIndex = musicQueueStore.queue.findIndex(song => song.hash === currentSong.value.hash);
             if (songIndex !== -1) {
                 const song = musicQueueStore.queue[songIndex];
-                if (song.url) {
+                if (isLocalSong(song)) {
+                    console.log('[PlayerControl] 本地音乐重新获取播放地址');
+                    const result = await addLocalMusicToQueue({
+                        ...song,
+                        isLocal: true
+                    });
+                    if (result && result.song) {
+                        await playSong(result.song);
+                        return true;
+                    }
+                    return false;
+                } else if (song.url) {
                     console.log('[PlayerControl] 从队列中的歌曲获取URL:', song.url);
                     currentSong.value.url = song.url;
                     audio.src = song.url;
                 } else if (song.isCloud) {
                     console.log('[PlayerControl] 云音乐没有URL，重新获取');
                     addCloudMusicToQueue(song.hash, song.name, song.author, song.timeLength, song.img);
-                    return;
-                }else if(song.isLocal){
-                    console.log('[PlayerControl] 本地音乐没有URL，重新获取');
-                    addLocalMusicToQueue(song);
+                    return false;
                 } else {
                     console.log('[PlayerControl] 歌曲没有URL，重新获取');
-                    addSongToQueue(song.hash, song.name, song.img, song.author);
-                    return;
+                    const result = await addSongToQueue(song.hash, song.name, song.img, song.author);
+                    if (result && result.song) {
+                        playSong(result.song);
+                        return true;
+                    }
+                    return false;
                 }
             } else {
                 console.log('[PlayerControl] 歌曲不在队列中，播放下一首');
                 playSongFromQueue('next');
-                return;
+                return false;
             }
         }
     }
 
-    if (playing.value) {
-        console.log('[PlayerControl] 暂停播放');
-        audio.pause();
-        playing.value = false;
-    } else {
-        console.log('[PlayerControl] 开始播放');
-        try {
-            await audio.play();
-            playing.value = true;
-        } catch (retryError) {
-            console.error('[PlayerControl] 播放失败:', retryError);
-            window.$modal.alert(t('bo-fang-shi-bai'));
+    try {
+        mediaSession.changeMediaSession(currentSong.value);
+        // 更新SMTC位置状态
+        if (audio.duration) {
+            mediaSession.updatePositionState(audio.currentTime, audio.duration, currentSpeed.value);
         }
+    } catch(smtcErr) {
+        console.warn('[PlayerControl] 更新 SMTC 信息失败:', smtcErr);
+    }
+
+    try {
+        // 响度规格化开启时 AudioContext 可能处于 suspended，恢复播放前先确保其运行
+        await ensureAudioContextRunning();
+        await audio.play();
+        playing.value = true;
+        return true;
+    } catch (retryError) {
+        console.error('[PlayerControl] 播放失败:', retryError);
+        window.$modal.alert(t('bo-fang-shi-bai'));
+        return false;
+    }
+};
+
+// 切换播放/暂停（状态以 audio.paused 为准）
+const togglePlayPause = async () => {
+    if (audio.paused) {
+        console.log('[PlayerControl] 开始播放');
+        await resumePlayback();
+    } else {
+        console.log('[PlayerControl] 暂停播放');
+        pausePlayback();
     }
 };
 
@@ -627,8 +1108,19 @@ const playSongFromQueue = async (direction) => {
     } else if (currentPlaybackModeIndex.value === 0) {
         // 随机播放
         targetIndex = handleRandomPlayback(direction, currentIndex);
+    } else if (currentPlaybackModeIndex.value === 3) {
+        // 顺序播放
+        if (direction === 'previous') {
+            targetIndex = currentIndex === 0 ? musicQueueStore.queue.length - 1 : currentIndex - 1;
+        } else {
+            targetIndex = currentIndex + 1;
+            if (targetIndex >= musicQueueStore.queue.length) {
+                playing.value = false;
+                return;
+            }
+        }
     } else {
-        // 顺序播放或单曲循环
+        // 列表循环或单曲循环
         targetIndex = direction === 'previous'
             ? (currentIndex === 0 ? musicQueueStore.queue.length - 1 : currentIndex - 1)
             : (currentIndex + 1) % musicQueueStore.queue.length;
@@ -651,8 +1143,11 @@ const playSongFromQueue = async (direction) => {
                 targetSong.img,
                 false // 不重置播放位置，只获取URL
             );
-        } else if (targetSong.isLocal) {
-            result = await addLocalMusicToQueue(targetSong, false);
+        } else if (isLocalSong(targetSong)) {
+            result = await addLocalMusicToQueue({
+                ...targetSong,
+                isLocal: true
+            }, false);
         } else {
             result = await addSongToQueue(
                 targetSong.hash,
@@ -668,7 +1163,7 @@ const playSongFromQueue = async (direction) => {
             console.log('[PlayerControl] 成功获取歌曲URL，开始播放:', result.song.name);
             await playSong(result.song);
         } else if (result && result.shouldPlayNext) {
-            console.log('[PlayerControl] 云盘歌曲无法播放');
+            console.log('[PlayerControl] 歌曲无法播放');
             handleAutoSwitch();
         } else {
             console.error('[PlayerControl] 无法获取歌曲URL');
@@ -817,6 +1312,21 @@ const handleLyricsWheel = (event) => {
     restoreLyricsScroll();
 };
 
+// 窗口尺寸变化后重新居中当前歌词行（scrollAmount 基于旧容器高度计算，需重算）
+let lyricsResizeTimer = null;
+const handleWindowResize = () => {
+    if (lyricsResizeTimer) clearTimeout(lyricsResizeTimer);
+    lyricsResizeTimer = setTimeout(() => {
+        lyricsResizeTimer = null;
+        if (!showLyrics.value || lyricsFlag.value || lyricsDisplayMode.value !== 'scroll') return;
+        const lyricsContainer = document.getElementById('lyrics-container');
+        const lineIndex = getCurrentLineIndex(audio.currentTime);
+        const lineElement = document.querySelectorAll('.line-group')[lineIndex];
+        if (!lyricsContainer || !lineElement) return;
+        scrollAmount.value = -lineElement.offsetTop + (lyricsContainer.offsetHeight / 2) - (lineElement.offsetHeight / 2) - 32;
+    }, 150);
+};
+
 const handleLyricsClick = (lineIndex) => {
     // if (!lyricsFlag.value) return;
     console.log('[PlayerControl] 点击歌词:', lineIndex);
@@ -907,7 +1417,7 @@ const setupMediaShortcuts = () => {
     window.electron.ipcRenderer.on('toggle-mute', toggleMute);
     window.electron.ipcRenderer.on('toggle-like', () => playlistSelect.value.toLike());
     window.electron.ipcRenderer.on('toggle-mode', togglePlaybackMode);
-    window.electron.ipcRenderer.on('url-params', (data) => {
+    window.electron.ipcRenderer.on('url-params', async (_event, data) => {
         console.log('[PlayerControl] 接收到URL参数:', data);
 
         // 处理歌曲哈希参数
@@ -926,6 +1436,10 @@ const setupMediaShortcuts = () => {
                 path: '/PlaylistDetail',
                 query: { global_collection_id: data.listid }
             });
+        } else if(data.teamcode) {
+            console.log('[PlayerControl] 从URL启动打开组队活动并加入队伍:', data.teamcode);
+            await createTeamEventPopup();
+            await teamEventActions.joinTeam(data.teamcode);
         }
     });
 };
@@ -935,7 +1449,7 @@ const toggleMute = () => {
     isMuted.value = !isMuted.value;
     audio.muted = isMuted.value;
     if (isMuted.value) volume.value = 0;
-    else volume.value = audio.volume * 100;
+    else volume.value = amplitudeToSlider(audio.volume);
     localStorage.setItem('player_volume', volume.value);
     console.log('[PlayerControl] 切换静音:', isMuted.value, '音量:', volume.value, '实际audio.volume:', audio.volume);
 };
@@ -1013,21 +1527,19 @@ const setAudioOutputDeviceWatcherEnabled = (enabled) => {
 let audioOutputDeviceWatchChangeHandler = null;
 
 const applyAudioOutputDevice = async (deviceId) => {
-    if (typeof audio?.setSinkId !== 'function') {
+    const result = await setAudioOutputDevice(audio, deviceId);
+    if (result.ok) return true;
+
+    if (result.reason === 'UNSUPPORTED') {
         console.warn('[PlayerControl] 当前环境不支持切换音频输出设备（setSinkId不可用）');
-        return false;
+    } else if (result.requested !== 'default') {
+        console.error('[PlayerControl] 切换音频输出设备失败:', result.error);
+        window.$modal.alert('切换音频输出设备失败,请刷新页面后重试');
+    } else {
+        console.warn('[PlayerControl] 切回默认音频输出设备失败:', result.error);
     }
 
-    const sinkId = deviceId || 'default';
-    try {
-        await audio.setSinkId(sinkId);
-        console.log('[PlayerControl] 已切换音频输出设备:', sinkId);
-        return true;
-    } catch (error) {
-        console.warn('[PlayerControl] 切换音频输出设备失败:', error);
-        window.$modal.alert('切换音频输出设备失败,请刷新页面后重试');
-        return false;
-    }
+    return false;
 };
 
 // 切换速度菜单
@@ -1045,6 +1557,26 @@ const changePlaybackSpeed = (speed) => {
     if (audio.duration && currentSong.value?.hash) {
         mediaSession.updatePositionState(audio.currentTime, audio.duration, speed);
     }
+};
+
+const handleDocumentClick = (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    
+    if (!target.closest('.quality-menu-wrapper')) {
+        qualityMenuOpen.value = false;
+    }
+    if (!target.closest('.playback-speed')) {
+        showSpeedMenu.value = false;
+    }
+};
+
+const syncDesktopLyricsFont = (settings = JSON.parse(localStorage.getItem('settings') || '{}')) => {
+    desktopLyricsFont.value = settings?.desktopLyricsFont || '';
+};
+
+const handleSettingsChange = (event) => {
+    syncDesktopLyricsFont(event.detail?.settings);
 };
 
 // 跳转到搜索页面搜索歌曲
@@ -1068,6 +1600,7 @@ onMounted(() => {
     audioController.initAudio();
 
     const savedSettings = JSON.parse(localStorage.getItem('settings') || '{}');
+    syncDesktopLyricsFont(savedSettings);
     setAudioOutputDeviceWatcherEnabled(savedSettings.pauseOnAudioOutputChange === 'on');
     void applyAudioOutputDevice(savedSettings.audioOutputDevice);
 
@@ -1096,13 +1629,33 @@ onMounted(() => {
     if (current_song) {
         try {
             const savedSong = JSON.parse(current_song);
+            if (isLocalSong(savedSong)) {
+                savedSong.isLocal = true;
+                savedSong.url = '';
+                if (isBlobUrl(savedSong.img)) {
+                    savedSong.img = './assets/images/ico.png';
+                }
+            }
             currentSong.value = savedSong;
+
+            if (isLocalSong(savedSong)) {
+                void restoreLocalSongCover(savedSong).then((cover) => {
+                    if (!cover || currentSong.value.hash !== savedSong.hash) return;
+                    currentSong.value.img = cover;
+                    const { file, handle, ...savedLocalSong } = currentSong.value;
+                    localStorage.setItem('current_song', JSON.stringify({
+                        ...savedLocalSong,
+                        url: ''
+                    }));
+                });
+            }
 
             // 如果有URL，恢复播放源
             if (savedSong.url) {
-                if(savedSong.isLocal) return;
-                console.log('[PlayerControl] 从缓存恢复音频源:', savedSong.url);
-                audio.src = savedSong.url;
+                if (!isLocalSong(savedSong)) {
+                    console.log('[PlayerControl] 从缓存恢复音频源:', savedSong.url);
+                    audio.src = savedSong.url;
+                }
             } else {
                 console.log('[PlayerControl] 缓存的歌曲没有URL');
             }
@@ -1114,16 +1667,10 @@ onMounted(() => {
     // 初始化播放模式
     playbackMode.initPlaybackMode();
 
-    // 初始化设置
-    const settings = JSON.parse(localStorage.getItem('settings') || '{}');
-    if (settings) {
-        lyricsBackground.value = settings?.lyricsBackground || 'on';
-        lyricsFontSize.value = settings?.lyricsFontSize || '24px';
-    }
-
     // 设置媒体会话
     mediaSession.initMediaSession({
-        togglePlayPause,
+        play: resumePlayback,
+        pause: pausePlayback,
         playPrevious: () => playSongFromQueue('previous'),
         playNext: () => playSongFromQueue('next'),
         seekBackward: (seekOffset) => {
@@ -1170,6 +1717,9 @@ onMounted(() => {
 
     // 添加事件监听
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('click', handleDocumentClick);
+    window.addEventListener('settings-change', handleSettingsChange);
+    window.addEventListener('resize', handleWindowResize);
 
     // 设置特定于PlayerControl的监听器
     audio.addEventListener('pause', () => {
@@ -1187,11 +1737,14 @@ onMounted(() => {
         if (isElectron()) window.electron.ipcRenderer.send('play-pause-action', playing.value, audio.currentTime);
     });
 
-    audio.addEventListener('error', (e) => {
+    audio.addEventListener('error', async (e) => {
         console.log('[PlayerControl] 音频错误代码:', audio.error?.code);
         console.error('[PlayerControl] 音频错误:', e);
         if(audio.error?.code == 4){
-            addSongToQueue(currentSong.value.hash, currentSong.value.name, currentSong.value.img, currentSong.value.author);
+            const result = await addSongToQueue(currentSong.value.hash, currentSong.value.name, currentSong.value.img, currentSong.value.author, true, 'flac');
+            if (result && result.song) {
+                playSong(result.song);
+            }
         }else{
             window.$modal.alert(t('yin-pin-jia-zai-shi-bai'));
         }
@@ -1214,6 +1767,7 @@ watch(lyricsData, (newLyrics) => {
 onUnmounted(() => {
     // 清除自动切换定时器
     clearAutoSwitchTimer();
+    stopLyricsBackgroundCarousel();
 
     if (audioOutputDeviceWatchChangeHandler) {
         window.removeEventListener('audio-output-device-watch-change', audioOutputDeviceWatchChangeHandler);
@@ -1252,6 +1806,13 @@ onUnmounted(() => {
 
     // 清理键盘事件
     document.removeEventListener('keydown', handleKeyDown);
+    document.removeEventListener('click', handleDocumentClick);
+    window.removeEventListener('settings-change', handleSettingsChange);
+    window.removeEventListener('resize', handleWindowResize);
+    if (lyricsResizeTimer) {
+        clearTimeout(lyricsResizeTimer);
+        lyricsResizeTimer = null;
+    }
 });
 
 // 对外暴露接口
@@ -1362,7 +1923,7 @@ defineExpose({
         if (result && result.song) {
             await playSong(result.song);
     } else if (result && result.shouldPlayNext) {
-        console.log('[PlayerControl] 云盘歌曲无法播放');
+        console.log('[PlayerControl] 歌曲无法播放');
         handleAutoSwitch();
         }
         return result;
@@ -1445,5 +2006,5 @@ const onQueueLocalSongAdd = async (item) => {
 </script>
 
 <style scoped>
-@import '@/assets/style/PlayerControl.css';
+@import '@/assets/style/PlayerControl.scss';
 </style>

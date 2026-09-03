@@ -4,78 +4,47 @@
             <h2 class="section-title">{{ $t('sou-suo-jie-guo') }}</h2>
             <!-- 添加搜索类型标签栏 -->
             <div class="search-tabs">
-                <button 
-                    v-for="tab in searchTabs" 
-                    :key="tab.type" 
-                    :class="['tab-button', { active: searchType === tab.type }]"
-                    @click="changeSearchType(tab.type)"
-                >
+                <button v-for="tab in searchTabs" :key="tab.type"
+                    :class="['tab-button', { active: searchType === tab.type }]" @click="changeSearchType(tab.type)">
                     {{ tab.name }}
                 </button>
             </div>
             <!-- 骨架屏加载效果 -->
-            <div v-if="isLoading" class="skeleton-container">
-                <!-- 歌曲骨架屏 -->
-                <div v-if="searchType === 'song'" class="song-skeleton">
-                    <div v-for="i in 10" :key="i" class="skeleton-item result-item">
-                        <div class="skeleton-cover"></div>
-                        <div class="skeleton-info">
-                            <div class="skeleton-line"></div>
-                            <div class="skeleton-line short"></div>
-                        </div>
-                        <div class="skeleton-meta">
-                            <div class="skeleton-line tiny"></div>
-                            <div class="skeleton-line tiny"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 歌手/专辑/歌单共用骨架屏 -->
-                <div v-else class="grid-skeleton">
-                    <div class="skeleton-grid">
-                        <div v-for="i in 12" :key="i" :class="['skeleton-grid-card', {
-                            'skeleton-artist-card': searchType === 'author',
-                            'skeleton-album-card': searchType === 'album',
-                            'skeleton-playlist-card': searchType === 'special'
-                        }]">
-                            <div :class="[searchType === 'author' ? 'skeleton-avatar' : 'skeleton-cover square']"></div>
-                            <div class="skeleton-line"></div>
-                            <div v-if="searchType !== 'author'" class="skeleton-line short"></div>
-                        </div>
-                    </div>
-                </div>
+            <div v-if="isLoading">
+                <!-- 歌曲/综合骨架屏 -->
+                <CommonSkeleton v-if="searchType === 'song' || searchType === 'complex'" variant="song-list" :count="10" />
+
+                <!-- 歌手/专辑/歌单/mv共用骨架屏 -->
+                <CommonSkeleton v-else variant="search-grid" :count="10" :avatar="searchType === 'author'" />
             </div>
-            
-            <template v-else-if="searchResults.length > 0">
+
+            <template v-else-if="hasSearchContent">
+                <!-- 综合搜索结果 -->
+                <ComplexSearchResults v-if="searchType === 'complex'" :data="complexSearchData"
+                    :keyword="searchQuery" @song-play="handleComplexSongPlay"
+                    @song-contextmenu="showContextMenu" @artist-click="handleArtistClick"
+                    @album-click="handleAlbumClick" @playlist-click="handlePlaylistClick"
+                    @mv-click="handleMvClick" @program-click="handleProgramClick" />
+
                 <!-- 歌曲搜索结果 -->
-                <ul v-if="searchType === 'song'">
-                    <li v-for="(result, index) in searchResults" :key="index" class="result-item"
-                        @click="playSong(result?.HQFileHash || result?.SQFileHash || result?.FileHash, result.OriSongName, $getCover(result.Image, 480), result.SingerName)"
-                        @contextmenu.prevent="showContextMenu($event, result)">
-                        <img :src="$getCover(result.Image, 100)" alt="Cover" />
-                        <div class="result-info">
-                            <p class="result-name">{{ result.OriSongName }}</p>
-                            <p class="result-type">{{ result.SingerName }}</p>
-                        </div>
-                        <div class="result-meta">
-                            <div class="meta-column">
-                                <p class="result-duration">{{ $formatMilliseconds(result.Duration) }}</p>
-                                <p class="result-publish-date">{{ result.PublishDate }}</p>
-                            </div>
-                        </div>
-                    </li>
-                </ul>
-                
+                <SongSearchList v-else-if="searchType === 'song'" :songs="searchResults"
+                    @song-click="handleSongClick" @song-contextmenu="showContextMenu" />
+
                 <!-- 歌手搜索结果 -->
-                <ArtistGrid v-else-if="searchType === 'author'" :artists="searchResults" @artist-click="handleArtistClick" />
-                
+                <ArtistGrid v-else-if="searchType === 'author'" :artists="searchResults"
+                    @artist-click="handleArtistClick" />
+
                 <!-- 专辑搜索结果 -->
                 <AlbumGrid v-else-if="searchType === 'album'" :albums="searchResults" @album-click="handleAlbumClick" />
-                
-                <!-- 歌单搜索结果 -->
-                <PlaylistGrid v-else-if="searchType === 'special'" :playlists="searchResults" @playlist-click="handlePlaylistClick" />
 
-                <div class="pagination">
+                <!-- MV搜索结果 -->
+                <MvGrid v-else-if="searchType === 'mv'" :mvs="searchResults" @mv-click="handleMvClick" />
+
+                <!-- 歌单搜索结果 -->
+                <PlaylistGrid v-else-if="searchType === 'special'" :playlists="searchResults"
+                    @playlist-click="handlePlaylistClick" />
+
+                <div v-if="showPagination" class="pagination">
                     <button @click="prevPage" :disabled="currentPage === 1">{{ $t('shang-yi-ye') }}</button>
                     <div class="page-numbers">
                         <button v-for="pageNum in displayedPageNumbers" :key="pageNum" :class="['page-number', {
@@ -93,18 +62,25 @@
     <ContextMenu ref="contextMenuRef" :playerControl="playerControl" />
 </template>
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, onActivated, computed } from 'vue';
 import ContextMenu from '../components/ContextMenu.vue';
-import AlbumGrid from '../components/AlbumGrid.vue';
-import PlaylistGrid from '../components/PlaylistGrid.vue';
-import ArtistGrid from '../components/ArtistGrid.vue';
+import CommonSkeleton from '../components/CommonSkeleton.vue';
+import SongSearchList from '../components/search/SongSearchList.vue';
+import AlbumGrid from '../components/search/AlbumGrid.vue';
+import PlaylistGrid from '../components/search/PlaylistGrid.vue';
+import ArtistGrid from '../components/search/ArtistGrid.vue';
+import MvGrid from '../components/search/MvGrid.vue';
+import ComplexSearchResults from '../components/search/ComplexSearchResults.vue';
 import { get } from '../utils/request';
+import { openMvPlayer } from '../utils/utils';
 import { useRoute, useRouter } from 'vue-router';
+import { useActivatedWatch } from '../composables/useActivatedWatch';
 const route = useRoute();
 const router = useRouter();
 const searchQuery = ref(route.query.q || '');
-const searchType = ref(route.query.type || 'song'); 
+const searchType = ref(route.query.type || 'complex');
 const searchResults = ref([]);
+const complexSearchData = ref(null);
 const currentPage = ref(1);
 const pageSize = ref(30);
 const totalPages = ref(1);
@@ -112,48 +88,62 @@ const contextMenuRef = ref(null);
 const isLoading = ref(false);
 
 const searchTabs = [
+    { type: 'complex', name: '综合' },
     { type: 'song', name: '单曲' },
     { type: 'special', name: '歌单' },
     { type: 'album', name: '专辑' },
+    { type: 'mv', name: 'MV' },
     { type: 'author', name: '歌手' }
 ];
 
 // 切换搜索类型
 const changeSearchType = (type) => {
-    searchType.value = type;
+    if (searchType.value === type) return;
     currentPage.value = 1; // 切换类型时重置页码
-    
+
     // 更新URL参数
     router.push({
-        query: { 
+        query: {
             ...route.query,
-            type: type 
+            type: type
         }
     });
-    performSearch();
 };
 
 const showContextMenu = (event, song) => {
     if (contextMenuRef.value) {
         song.cover = song.Image?.replace("{size}", 480) || './assets/images/ico.png',
-        song.timeLength = song.Duration;
+            song.timeLength = song.Duration;
         song.OriSongName = song.FileName;
         contextMenuRef.value.openContextMenu(event, song);
     }
 };
 
 onMounted(() => {
-    if (route.query.type) {
-        searchType.value = route.query.type;
-    }
-    performSearch();
+    syncSearchFromRoute(true);
 });
 
-watch(() => route.query.q, (newQuery) => {
-    currentPage.value = 1;
-    searchQuery.value = newQuery;
-    performSearch();
+onActivated(() => {
+    syncSearchFromRoute();
 });
+
+useActivatedWatch(() => [route.name, route.query.q, route.query.type], () => {
+    syncSearchFromRoute();
+});
+
+const syncSearchFromRoute = (force = false) => {
+    if (route.name !== 'Search') return;
+
+    const nextQuery = route.query.q || '';
+    const nextType = route.query.type || 'complex';
+    const changed = searchQuery.value !== nextQuery || searchType.value !== nextType;
+    if (!force && !changed) return;
+
+    currentPage.value = 1;
+    searchQuery.value = nextQuery;
+    searchType.value = nextType;
+    performSearch();
+};
 
 const props = defineProps({
     playerControl: Object
@@ -163,10 +153,55 @@ const playSong = (hash, name, img, author) => {
     props.playerControl.addSongToQueue(hash, name, img, author);
 };
 
+const handleSongClick = (song) => {
+    playSong(
+        song?.HQFileHash || song?.SQFileHash || song?.FileHash,
+        song?.OriSongName,
+        song?.Image?.replace('{size}', 480) || './assets/images/ico.png',
+        song?.SingerName
+    );
+};
+
+const handleComplexSongPlay = (song) => {
+    handleSongClick({
+        ...song,
+        OriSongName: song?.OriSongName || song?.SongName
+    });
+};
+
+const hasSearchContent = computed(() => {
+    if (searchType.value === 'complex') {
+        return !!searchQuery.value;
+    }
+    return searchResults.value.length > 0;
+});
+
+const showPagination = computed(() => {
+    return searchType.value !== 'complex' && totalPages.value > 1;
+});
+
 const performSearch = async () => {
-    if (!searchQuery.value) return;
+    if (!searchQuery.value) {
+        searchResults.value = [];
+        complexSearchData.value = null;
+        totalPages.value = 1;
+        return;
+    }
+
     isLoading.value = true;
+    searchResults.value = [];
+    totalPages.value = 1;
     try {
+        if (searchType.value === 'complex') {
+            complexSearchData.value = null;
+            const response = await get(`/search/complex?keywords=${encodeURIComponent(searchQuery.value)}`);
+            if (response.status === 1) {
+                complexSearchData.value = response.data;
+            }
+            return;
+        }
+
+        complexSearchData.value = null;
         const response = await get(`/search?keywords=${encodeURIComponent(searchQuery.value)}&page=${currentPage.value}&pagesize=${pageSize.value}&type=${searchType.value}`)
         if (response.status === 1) {
             searchResults.value = response.data.lists;
@@ -252,14 +287,29 @@ const handlePlaylistClick = (playlist) => {
 const handleArtistClick = (artist) => {
     router.push({
         path: '/PlaylistDetail',
-        query: { 
+        query: {
             singerid: artist.AuthorId
         }
     });
 };
+
+const handleMvClick = async (mv) => {
+    try {
+        props.playerControl?.pause?.();
+        const title = mv?.MvName || mv?.FileName || '视频播放';
+        await openMvPlayer(router, mv?.MvHash, title);
+    } catch (error) {
+        $message.error('打开视频播放器失败');
+    }
+};
+
+const handleProgramClick = (program) => {
+    if (!program?.albumid) return;
+    router.push(`/PlaylistDetail?albumid=${program.albumid}`);
+};
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .search-results {
     padding: 20px;
 }
@@ -280,25 +330,25 @@ const handleArtistClick = (artist) => {
     position: relative;
     transition: all 0.3s;
     border-radius: 5px 5px 0 0;
-}
 
-.tab-button:hover {
-    color: var(--primary-color);
-}
+    &:hover {
+        color: var(--primary-color);
+    }
 
-.tab-button.active {
-    color: var(--primary-color);
-    font-weight: bold;
-}
+    &.active {
+        color: var(--primary-color);
+        font-weight: bold;
 
-.tab-button.active::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background-color: var(--primary-color);
+        &::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: var(--primary-color);
+        }
+    }
 }
 
 .result-item {
@@ -310,24 +360,24 @@ const handleArtistClick = (artist) => {
     cursor: pointer;
     border-radius: 5px;
     gap: 10px;
-}
 
-.result-item:hover {
-    background-color: #f5f5f5;
-}
+    &:hover {
+        background-color: #f5f5f5;
+    }
 
-.result-item img {
-    width: 50px;
-    height: 50px;
-    border-radius: 5px;
-    margin-right: 10px;
+    img {
+        width: 50px;
+        height: 50px;
+        border-radius: 5px;
+        margin-right: 10px;
+    }
 }
 
 .result-info {
     display: flex;
     flex-direction: column;
     flex: 1;
-    min-width: 0; /* 防止flex子项溢出 */
+    min-width: 0;
 }
 
 .result-meta {
@@ -346,14 +396,31 @@ const handleArtistClick = (artist) => {
 }
 
 .result-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 16px;
     font-weight: bold;
     height: 23px;
     margin: 0;
     max-width: 900px;
+    min-width: 0;
+}
+
+.result-name-text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.original-tag {
+    flex-shrink: 0;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    line-height: 14px;
+    color: #fff;
+    background-color: var(--primary-color);
 }
 
 .result-duration,
@@ -404,17 +471,31 @@ const handleArtistClick = (artist) => {
     color: #333;
     min-width: 40px;
     transition: all 0.3s;
-}
 
-.page-number:hover {
-    background-color: var(--primary-color);
-    color: white;
-}
+    &:hover {
+        background-color: var(--primary-color);
+        color: white;
+    }
 
-.page-number.active {
-    background-color: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
+    &.active {
+        background-color: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    &.ellipsis {
+        background-color: transparent;
+        border: none;
+        cursor: default;
+        pointer-events: none;
+        padding: 8px 8px;
+        min-width: 30px;
+
+        &:hover {
+            background-color: transparent;
+            color: #333;
+        }
+    }
 }
 
 .pagination button {
@@ -425,18 +506,18 @@ const handleArtistClick = (artist) => {
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s;
-}
 
-.pagination button:hover:not(:disabled) {
-    background-color: var(--primary-color);
-    color: white;
-}
+    &:hover:not(:disabled) {
+        background-color: var(--primary-color);
+        color: white;
+    }
 
-.pagination button:disabled {
-    background-color: white;
-    color: #999;
-    cursor: not-allowed;
-    border-color: #ddd;
+    &:disabled {
+        background-color: white;
+        color: #999;
+        cursor: not-allowed;
+        border-color: #ddd;
+    }
 }
 
 .section-title {
@@ -444,114 +525,5 @@ const handleArtistClick = (artist) => {
     font-weight: bold;
     margin-bottom: 30px;
     color: var(--primary-color);
-}
-
-.page-number.ellipsis {
-    background-color: transparent;
-    border: none;
-    cursor: default;
-    pointer-events: none;
-    padding: 8px 8px;
-    min-width: 30px;
-}
-
-.page-number.ellipsis:hover {
-    background-color: transparent;
-    color: #333;
-}
-
-
-</style>
-
-<!-- 添加骨架屏样式 -->
-<style scoped>
-/* 骨架屏动画 */
-@keyframes shimmer {
-    0% {
-        background-position: -468px 0;
-    }
-    100% {
-        background-position: 468px 0;
-    }
-}
-
-.skeleton-container {
-    width: 100%;
-}
-
-.skeleton-item {
-    margin-bottom: 15px;
-}
-
-.skeleton-cover, .skeleton-avatar {
-    width: 50px;
-    height: 50px;
-    border-radius: 5px;
-    background: linear-gradient(to right, #f0f0f0 8%, #e0e0e0 18%, #f0f0f0 33%);
-    background-size: 800px 104px;
-    animation: shimmer 1.5s linear infinite forwards;
-}
-
-.skeleton-avatar {
-    border-radius: 50%;
-    width: 100px;
-    height: 100px;
-    margin: 0 auto 10px;
-}
-
-.skeleton-cover.square {
-    width: 150px;
-    height: 150px;
-    margin: 0 auto 10px;
-}
-
-.skeleton-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.skeleton-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 120px;
-    align-items: flex-end;
-}
-
-.skeleton-line {
-    height: 16px;
-    background: linear-gradient(to right, #f0f0f0 8%, #e0e0e0 18%, #f0f0f0 33%);
-    background-size: 800px 104px;
-    animation: shimmer 1.5s linear infinite forwards;
-    border-radius: 3px;
-    width: 100%;
-    margin-top: 5px;
-}
-
-.skeleton-line.short {
-    width: 60%;
-}
-
-.skeleton-line.tiny {
-    width: 40%;
-    height: 12px;
-}
-
-.skeleton-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 20px;
-}
-
-.skeleton-artist-card, .skeleton-album-card, .skeleton-playlist-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 15px;
-    background-color: #f9f9f9;
-    border-radius: 8px;
-    transition: transform 0.3s;
 }
 </style>

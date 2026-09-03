@@ -2,7 +2,32 @@ import { ipcMain, shell, BrowserWindow, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import log from 'electron-log';
+import { fileURLToPath } from 'url';
 import extensionManager from './extensionManager.js';
+import nativeHostManager from './nativeHostManager.js';
+import { bindExternalLinkHandler } from '../services/externalLinkHandler.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function syncNativeHosts() {
+    nativeHostManager.syncExtensions(
+        extensionManager.getLoadedExtensions(),
+        extensionManager.scanExtensions()
+    );
+    nativeHostManager.startAuthorizedAutoHosts();
+}
+
+function getSenderExtensionId(event) {
+    // 插件调用 native-host-send/status 时，必须来自 chrome-extension:// 页面。
+    // 这里从 senderFrame.url 解析扩展 ID，避免插件伪造其他插件的 extensionId。
+    const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
+    try {
+        const url = new URL(senderUrl);
+        return url.protocol === 'chrome-extension:' ? url.hostname : '';
+    } catch {
+        return '';
+    }
+}
 
 // 获取插件图标数据
 function getExtensionIconData(extension, extensionPath) {
@@ -36,15 +61,69 @@ function getExtensionIconData(extension, extensionPath) {
  * 注册插件相关的 IPC 处理程序
  */
 export function registerExtensionIPC() {
+    // 管理页调用：用户授权或取消授权某个插件声明的本地程序。
+    ipcMain.handle('set-native-host-authorization', (event, extensionId, hostId, authorized) => {
+        try {
+            // 插件页面也能看到 preload 暴露的 electronAPI，所以授权接口必须在主进程校验来源。
+            // 只要请求来自 chrome-extension://，就视为插件自调用，不能修改授权记录。
+            if (getSenderExtensionId(event)) {
+                return { success: false, message: '本地程序授权只能在萌音插件管理页操作' };
+            }
+
+            return nativeHostManager.setAuthorization(extensionId, hostId, authorized === true);
+        } catch (error) {
+            log.error('设置本地程序授权失败:', error);
+            return { success: false, message: error.message };
+        }
+    });
+
+    // 插件 bridge/popup 调用：查询自己的本地程序状态。
+    ipcMain.handle('native-host-get-status', (event, hostId) => {
+        try {
+            const extensionId = getSenderExtensionId(event);
+            if (!extensionId) {
+                return { success: false, message: '本地程序状态查询必须来自插件页面' };
+            }
+
+            return nativeHostManager.getStatusFromSender(extensionId, hostId);
+        } catch (error) {
+            log.error('获取本地程序状态失败:', error);
+            return { success: false, message: error.message };
+        }
+    });
+
+    // 插件 bridge/popup 调用：发送业务消息到本地程序 stdin。
+    ipcMain.handle('native-host-send', (event, hostId, payload) => {
+        try {
+            const extensionId = getSenderExtensionId(event);
+            if (!extensionId) {
+                return { success: false, message: '本地程序消息发送必须来自插件页面' };
+            }
+
+            return nativeHostManager.sendFromSender(extensionId, hostId, payload);
+        } catch (error) {
+            log.error('发送本地程序消息失败:', error);
+            return { success: false, message: error.message };
+        }
+    });
     // 获取插件列表
     ipcMain.handle('get-extensions', () => {
         try {
             const loadedExtensions = extensionManager.getLoadedExtensions();
             const scannedExtensions = extensionManager.scanExtensions();
+            // 每次读取插件列表时同步一次，保证授权按钮能立即找到对应插件记录。
+            nativeHostManager.syncExtensions(loadedExtensions, scannedExtensions);
             
             const extensions = loadedExtensions.map(ext => {
                 const scannedExt = scannedExtensions.find(scanned => scanned.name === ext.name);
                 let iconData = null;
+                const manifestAuthor = ext.manifest?.author ?? scannedExt?.manifest?.author;
+                const authorName = typeof manifestAuthor === 'string'
+                    ? manifestAuthor
+                    : (manifestAuthor?.name || '');
+                const authorUrl = typeof manifestAuthor === 'object'
+                    ? (manifestAuthor?.url || '')
+                    : '';
                 
                 if (scannedExt?.path) {
                     iconData = getExtensionIconData(ext, scannedExt.path);
@@ -52,13 +131,26 @@ export function registerExtensionIPC() {
                 
                 return {
                     id: ext.id,
+                    pluginId: ext.manifest?.plugin_id || scannedExt?.manifest?.plugin_id || '',
                     name: ext.name,
+                    directory: scannedExt?.directory || '',
                     version: ext.version,
                     enabled: true,
                     description: ext.manifest?.description || '',
+                    author: authorName,
+                    authorUrl: authorUrl,
                     permissions: ext.manifest?.permissions || [],
                     iconData: iconData,
-                    moeKoeAdapted: ext.manifest?.moekoe === true || scannedExt?.manifest?.moekoe === true
+                    moeKoeAdapted: ext.manifest?.moekoe === true || scannedExt?.manifest?.moekoe === true,
+                    minversion: ext.manifest?.minversion || scannedExt?.manifest?.minversion || '',
+                    popupPath: scannedExt?.popupPath || '',
+                    hasPopup: scannedExt?.hasPopup === true,
+                    nativeHosts: nativeHostManager.describeHosts(
+                        ext.id,
+                        ext.manifest || scannedExt?.manifest || {},
+                        scannedExt?.path || '',
+                        scannedExt?.directory || ''
+                    )
                 };
             });
             
@@ -87,9 +179,12 @@ export function registerExtensionIPC() {
     });
 
     // 重新加载插件
-    ipcMain.handle('reload-extensions', () => {
+    ipcMain.handle('reload-extensions', async () => {
         try {
-            const result = extensionManager.reloadExtensions();
+            // 先停止所有本地程序并等待退出，防止旧进程未退出时新进程竞态启动导致端口冲突
+            await nativeHostManager.stopAll();
+            const result = await extensionManager.reloadExtensions();
+            syncNativeHosts();
             return result;
         } catch (error) {
             log.error('重新加载插件失败:', error);
@@ -110,20 +205,26 @@ export function registerExtensionIPC() {
     });
 
     // 打开插件弹窗
-    ipcMain.handle('open-extension-popup', (event, extensionId, extensionName) => {
+    ipcMain.handle('open-extension-popup', (event, extensionId) => {
         try {
-            
+            const extension = extensionManager.getLoadedExtensions()
+                .find(item => item.id === extensionId);
+            const manifest = extension?.manifest || {};
+            const popupPath = manifest?.action?.default_popup || '';
+            const popupUrl = `chrome-extension://${extensionId}/${popupPath}`;
             // 创建新的弹窗窗口
             const popupWindow = new BrowserWindow({
                 width: 400,
                 height: 600,
                 webPreferences: {
+                    preload: path.join(__dirname, '../preload.cjs'),
                     nodeIntegration: false,
                     contextIsolation: true,
                     enableRemoteModule: false,
+                    sandbox: false,
                     webSecurity: false // 允许加载插件内容
                 },
-                title: extensionName || '插件弹窗',
+                title: '插件弹窗',
                 resizable: true,
                 minimizable: true,
                 maximizable: false,
@@ -137,8 +238,10 @@ export function registerExtensionIPC() {
             popupWindow.setMenuBarVisibility(false);
             popupWindow.removeMenu();
 
-            // 构建插件弹窗URL
-            const popupUrl = `chrome-extension://${extensionId}/popup.html`;
+            bindExternalLinkHandler(
+                popupWindow,
+                (url) => /^(https?:|mailto:|tel:)/i.test(url)
+            );
             
             popupWindow.loadURL(popupUrl).then(() => {
                 popupWindow.show();
@@ -158,6 +261,9 @@ export function registerExtensionIPC() {
     ipcMain.handle('install-extension', async (event, extensionPath) => {
         try {
             const result = await extensionManager.installExtension(extensionPath);
+            if (result?.success) {
+                syncNativeHosts();
+            }
             return result;
         } catch (error) {
             log.error('手动安装插件失败:', error);
@@ -166,9 +272,10 @@ export function registerExtensionIPC() {
     });
 
     // 卸载插件
-    ipcMain.handle('uninstall-extension', (event, extensionId) => {
+    ipcMain.handle('uninstall-extension', (event, extensionId, extensionDir) => {
         try {
-            const result = extensionManager.uninstallExtension(extensionId);
+            nativeHostManager.stopExtension(extensionId, true);
+            const result = extensionManager.uninstallExtension(extensionId, extensionDir);
             return result;
         } catch (error) {
             log.error('卸载插件失败:', error);
@@ -205,13 +312,34 @@ export function registerExtensionIPC() {
     ipcMain.handle('install-plugin-from-zip', async (event, zipPath) => {
         try {
             const result = await extensionManager.installPluginFromZip(zipPath);
+            if (result?.success) {
+                syncNativeHosts();
+            }
             return result;
         } catch (error) {
             log.error('安装插件失败:', error);
             return { success: false, message: error.message };
         }
     });
-
+    
+    // 从URL安装插件
+    ipcMain.handle('install-plugin-from-url', async (event, payload = {}) => {
+        try {
+            const result = await extensionManager.installPluginFromUrl(
+                payload.downloadUrl,
+                payload.extensionId,
+                payload.extensionDir
+            );
+            if (result?.success) {
+                syncNativeHosts();
+            }
+            return result;
+        } catch (error) {
+            log.error('Failed to install remote plugin:', error);
+            return { success: false, message: error.message };
+        }
+    });
+    
     // 显示文件选择对话框
     ipcMain.handle('show-open-dialog', async (event, options) => {
         try {
@@ -259,7 +387,13 @@ export function unregisterExtensionIPC() {
         'uninstall-extension',
         'validate-extension',
         'get-extensions-directory',
-        'ensure-extensions-directory'
+        'ensure-extensions-directory',
+        'install-plugin-from-zip',
+        'install-plugin-from-url',
+        'show-open-dialog',
+        'set-native-host-authorization',
+        'native-host-get-status',
+        'native-host-send'
     ];
 
     channels.forEach(channel => {

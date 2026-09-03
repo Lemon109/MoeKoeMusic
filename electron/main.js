@@ -1,4 +1,4 @@
-import { app, ipcMain, globalShortcut, dialog, Notification, shell, session, powerSaveBlocker, nativeImage } from 'electron';
+import { app, ipcMain, globalShortcut, dialog, Notification, shell, session, powerSaveBlocker, nativeImage, screen } from 'electron';
 import {
     createWindow, createTray, createTouchBar, startApiServer,
     stopApiServer, registerShortcut,
@@ -6,9 +6,12 @@ import {
     registerProtocolHandler, sendHashAfterLoad, getTray, createMvWindow
 } from './appServices.js';
 import { initializeExtensions, cleanupExtensions } from './extensions/extensions.js';
-import { setupAutoUpdater } from './services/updater.js';
+import { setupAutoUpdater, startUpdateDownload } from './services/updater.js';
 import apiService from './services/apiService.js';
 import statusBarLyricsService from './services/statusBarLyricsService.js';
+import customTrayMenuService from './services/customTrayMenuService.js';
+import { setupDesktopShortcutIcon } from './services/desktopShortcutIcon.js';
+import { openLogPath, exportLog } from './services/logHelper.js';
 import Store from 'electron-store';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -43,6 +46,7 @@ app.on('ready', () => {
         try {
             mainWindow = createWindow();
             createTray(mainWindow);
+            customTrayMenuService.init(() => mainWindow, getTray);
 
             // 初始化状态栏歌词服务
             statusBarLyricsService.init(mainWindow, store, getTray, createTray);
@@ -54,7 +58,8 @@ app.on('ready', () => {
             apiService.init(mainWindow);
             registerProtocolHandler(mainWindow);
             sendHashAfterLoad(mainWindow);
-            initializeExtensions();
+            void initializeExtensions();
+            setupDesktopShortcutIcon();
         } catch (error) {
             console.log('初始化应用时发生错误:', error);
             createTray(null);
@@ -119,11 +124,15 @@ app.on('before-quit', () => {
     }
 
     // 清理状态栏歌词服务
-    statusBarLyricsService.cleanup();
+    setImmediate(() => {
+        statusBarLyricsService.cleanup();
+        customTrayMenuService.cleanup();
 
-    stopApiServer();
-    apiService.stop();
-    cleanupExtensions();
+        stopApiServer();
+        apiService.stop();
+        cleanupExtensions();
+        app.exit(0);
+    });
 });
 // 关闭所有窗口
 app.on('window-all-closed', () => {
@@ -151,6 +160,7 @@ ipcMain.on('disclaimer-response', (event, accepted) => {
     if (accepted) {
         store.set('disclaimerAccepted', true);
     } else {
+        app.isQuitting = true;
         app.quit();
     }
 });
@@ -205,7 +215,7 @@ ipcMain.on('custom-shortcut', (event) => {
 
 ipcMain.on('lyrics-data', (event, lyricsData) => {
     const lyricsWindow = mainWindow?.lyricsWindow;
-    if (lyricsWindow) {
+    if (lyricsWindow && !lyricsWindow.isDestroyed()) {
         lyricsWindow.webContents.send('lyrics-data', lyricsData);
     }
 
@@ -237,17 +247,26 @@ ipcMain.on('desktop-lyrics-action', (event, action) => {
                 lyricsWindow.close();
                 new Notification({
                     title: t('desktop-lyrics-closed'),
-                    body: t('this-time-only'),
                     icon: path.join(__dirname, '../build/icons/logo.png')
                 }).show();
                 mainWindow.lyricsWindow = null;
             }
+            syncDesktopLyricsSetting('off');
             break;
         case 'display-lyrics':
             if (!mainWindow.lyricsWindow) createLyricsWindow();
+            syncDesktopLyricsSetting('on');
             break;
     }
 });
+
+const syncDesktopLyricsSetting = (value) => {
+    const settings = store.get('settings') || {};
+    store.set('settings', {
+        ...settings,
+        desktopLyrics: value
+    });
+};
 
 ipcMain.on('set-ignore-mouse-events', (event, ignore) => {
     const lyricsWindow = mainWindow.lyricsWindow;
@@ -256,11 +275,39 @@ ipcMain.on('set-ignore-mouse-events', (event, ignore) => {
     }
 });
 
-ipcMain.on('window-drag', (event, { mouseX, mouseY }) => {
+ipcMain.on('window-drag', (event, { x, y, width, height }) => {
     const lyricsWindow = mainWindow.lyricsWindow;
     if (!lyricsWindow) return
-    lyricsWindow.setPosition(mouseX, mouseY)
-    store.set('lyricsWindowPosition', { x: mouseX, y: mouseY });
+    const bounds = lyricsWindow.getBounds();
+    const nextBounds = {
+        x: Math.round(x ?? bounds.x),
+        y: Math.round(y ?? bounds.y),
+        width: Math.round(width ?? bounds.width),
+        height: Math.round(height ?? bounds.height)
+    };
+    lyricsWindow.setBounds(nextBounds)
+    store.set('lyricsWindowPosition', { x: nextBounds.x, y: nextBounds.y });
+    store.set('lyricsWindowSize', { width: nextBounds.width, height: nextBounds.height });
+})
+
+ipcMain.on('lyrics-window-fixed-size', (event, { width, height, fixed }) => {
+    const lyricsWindow = mainWindow.lyricsWindow;
+    if (!lyricsWindow) return
+    if (fixed) {
+        lyricsWindow.setMaximumSize(Math.round(width), Math.round(height));
+        return
+    }
+    const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+    lyricsWindow.setMaximumSize(screenWidth, screenHeight);
+})
+
+ipcMain.handle('lyrics-window-pointer-state', () => {
+    const lyricsWindow = mainWindow.lyricsWindow;
+    if (!lyricsWindow) return null
+    return {
+        cursor: screen.getCursorScreenPoint(),
+        bounds: lyricsWindow.getBounds()
+    };
 })
 
 ipcMain.on('play-pause-action', (event, playing, currentTime) => {
@@ -270,6 +317,7 @@ ipcMain.on('play-pause-action', (event, playing, currentTime) => {
     }
     apiService.updatePlayerState({ isPlaying: playing, currentTime: currentTime });
     setThumbarButtons(mainWindow, playing);
+    customTrayMenuService.updatePlaybackState(playing, currentTime);
 })
 
 ipcMain.on('open-url', (event, url) => {
@@ -297,4 +345,21 @@ ipcMain.handle('open-mv-window', (e, url) => {
             throw error;
         }
     })();
+});
+
+ipcMain.handle('open-log-path', async (e) => {
+    try {
+        const result = await openLogPath();
+        return result ? { error: result } : { success: true };
+    }
+    catch (err) { return { error: err }; }
+});
+
+ipcMain.handle('export-log', async (e) => {
+    try { return await exportLog(); }
+    catch (err) { return { error: err }; }
+});
+
+ipcMain.handle('start-update-download', async () => {
+    return await startUpdateDownload();
 });

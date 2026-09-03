@@ -1,9 +1,15 @@
 > **注意**: この日本語ドキュメントはタイムリーに更新されない場合があります。最新の内容については[簡体字中国語版](https://github.com/iAJue/MoeKoeMusic/README.md)をご参照ください。
 <br />
 <p align="center">
-<img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/logo.png" alt="Logo" width="156" height="156">
+<img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/hero.png" alt="hero" width="250" height="250">
 <h2 align="center" style="font-weight: 600">MoeKoe Music</h2>
-
+  <p align="center">
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases/latest"><img src="https://img.shields.io/github/v/release/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/stargazers"><img src="https://img.shields.io/github/stars/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases"><img src="https://img.shields.io/github/downloads/MoeKoeMusic/MoeKoeMusic/total?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/iAJue"><img src="https://img.shields.io/badge/%F0%9F%8E%89_Create_by_iAJue-with_Love_%E2%9D%A4-pink?style=flat-square" /></a>
+  </p>
 <p align="center">
 オープンソースで簡潔で高ルックスのクールな犬のサードパーティクライアント
 <br />
@@ -41,31 +47,86 @@
 - 🔴 クールドッグアカウント登録(スキャン/携帯/アカウント登録)
 - 📃 歌詞表示のサポート
 - 📻 毎日のおすすめ曲
-- 🚫🤝 ソーシャル機能なし
-- 🔗 サードパーティ製APIなしの公式サーバ直結
-- ✔️ VIPは毎日自動で受け取り、ログインするとVIPになります
+- 🔕 ソーシャル機能なし
+- 🔗 公式サーバー直結
+- ✔️ 毎日VIPを自動受け取り、ログインするとVIPになります
 - 🎨 テーマカラー切り替え
 - 👋 開始の挨拶
 - ⚙️ マルチプラットフォームサポート
-- 🛠 その他の機能開発中
+- 🧩 スーパーPluginシステム
+- 🧭 レイアウト個人設定
+- 🥚 隠し機能とイースターエッグシステム
+- 🚀 初心者誘導システム
+- ✨ その他の機能はあなたが探索
 
 ## 📢 Todo List
 - [x] 📺 MV再生をサポート
 - [x] 🌚 Light/Dark Mode 自動切り替え
 - [x] 👆 Touch Bar対応
-- [x] 🖥️ PWA対応、Chrome/Edgeでアドレスバー右の➕ コンピュータにインストール
-- [ ] 🎧 Mprisのサポート
+- [x] 🖥️ PWA対応
 - [x] ⌨️ ショートカットとグローバルショートカットのカスタマイズ
 - [x] 🤟 多言語サポート
 - [x] 📻 デスクトップ歌詞
 - [x] ⚙️ システムアーキテクチャの最適化
 - [x] 🎶 曲、歌/コレクション、キャンセル
 
-更新ログは[Commits](https://github.com/iAJue/MoeKoeMusic/commits/main/)
+[更新履歴を見る](http://music.moekoe.cn/changelog.html)
 
-## 📦️インストール
+## 📦️ インストール
 
-本プロジェクトの[Releases](https://github.com/iAJue/MoeKoeMusic/releases)ページからインストールパッケージをダウンロードします。
+### 1. クライアントのインストール
+
+本プロジェクトの [Releases](https://github.com/iAJue/MoeKoeMusic/releases) ページにアクセスして、インストールパッケージをダウンロードしてください。
+
+### 2. WEB版のインストール（docker）
+
+* 注意：デプロイ後は、サーバーの対応ポートを開放する必要があります。または、リバースプロキシを使用してドメインアクセスを実現してください。
+
+    1. 方法一：クイックスタート（推奨）
+
+    ```
+    git clone https://github.com/iAJue/MoeKoeMusic.git
+    cd MoeKoeMusic
+    git submodule update --init --recursive
+    docker compose up -d &
+    ```
+
+    2. ~~方法二：docker-composeを使用したワンクリックインストール（イメージはまだ公式にアップロードされていません）~~
+    
+    ```
+    docker run -d --name MoeKoeMusic -p 8080:8080 -p 6521:6521 -e PORT=6521 -e platform=lite iajue/moekoe-music:latest
+    ```
+
+    3. 方法三：宝塔コンテナ編成
+
+    * リモートイメージ、バージョンは公式より遅れる可能性があります。
+    
+    ```
+    version: '3.3'
+    
+    services:
+      moekoe-music:
+        # イメージアドレス
+        image: registry.cn-wulanchabu.aliyuncs.com/youngxj/moekoe-music:latest
+        container_name: moekoe-music # コンテナ名
+        restart: unless-stopped # 自動再起動
+        build:
+          context: .
+          dockerfile: Dockerfile
+        environment:
+          - PORT=6521
+          - platform=lite
+        ports: # ポートマッピング
+          - "8080:8080"  # フロントエンドサービス
+          - "6521:6521"  # APIサービス
+    
+    ```
+    
+    上記の内容をコピーして、宝塔パネルのコンテナ編成に貼り付け、編成名をMoeKoeMusicとして、デプロイをクリックしてください。
+### 3. ワンクリックデプロイ
+[![EdgeOne Pagesを使用してデプロイ](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://edgeone.ai/pages/new?template=https://github.com/iAJue/moekoemusic&install-command=npm%20install&output-directory=dist&root-directory=.%2F&build-command=npm%20run%20build&env=VITE_APP_API_URL)
+
+環境変数（VITE_APP_API_URL）に自分のAPIアドレスを入力する必要があります。
 
 ## ⚙️ かいはつ
 
@@ -241,8 +302,10 @@ APIソースコードは[MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMu
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/6.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/7.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/8.png)
-
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/9.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/10.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/11.png)
 
 ## 🗓️ スター履歴
 
-[![Star History Chart](https://api.star-history.com/svg?repos=iAJue/MoeKoeMusic&type=Date)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)
+[![Star History Chart](https://api.star-history.com/chart?repos=MoeKoeMusic/MoeKoeMusic&type=date&legend=top-left&sealed_token=unIw8k8CbengL1CW5XVoW-psSsTQHjp7X6Hchrr9WiEh4baeFZXunI95J9V8nnY8XTWrT8UuvRBXScevzXLRlhTID0-_V200iw9TFChclu1-28maCH3NutInvRl6nQ1jDMXpInpefFixeHYDr8BCn9fYqiNtZAoK30Vi46s7QPQQU80mJstgjgeqWjXf)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)

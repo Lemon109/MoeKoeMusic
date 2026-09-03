@@ -9,8 +9,9 @@ import fs from 'fs';
 import { exec } from 'child_process';
 import { checkForUpdates } from './services/updater.js';
 import { Notification } from 'electron';
-import extensionManager from './extensions/extensionManager.js';
 import { t } from './language/i18n.js';
+import { bindExternalLinkHandler } from './services/externalLinkHandler.js';
+import customTrayMenuService from './services/customTrayMenuService.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const store = new Store();
 const { TouchBarLabel, TouchBarButton, TouchBarGroup, TouchBarSpacer } = TouchBar;
@@ -55,7 +56,7 @@ export function createWindow() {
         show: savedConfig?.startMinimized === 'on' ? false : true,
         frame: useNativeTitleBar,
         titleBarStyle: useNativeTitleBar ? 'default' : 'hiddenInset',
-        autoHideMenuBar: true,
+        autoHideMenuBar: false, 
         webPreferences: {
             preload: path.join(__dirname, 'preload.cjs'),
             contextIsolation: true,
@@ -63,10 +64,16 @@ export function createWindow() {
             sandbox: false,
             webSecurity: false, // 禁用 CORS、同源策略
             allowRunningInsecureContent: true, // 允许混合内容
+            // 默认开启节流；用户在设置中开启该选项时禁用，以修复后台/最小化时 Web Audio 音效失效
+            backgroundThrottling: savedConfig?.backgroundThrottling !== 'on',
             zoomFactor: 1.0
         },
         icon: getIconPath('icon.ico')
     });
+    bindExternalLinkHandler(mainWindow);
+
+    // 隐藏菜单栏但保留默认菜单
+    mainWindow.setMenuBarVisibility(false);
 
     if (store.get('maximize')) {
         mainWindow.maximize();
@@ -84,10 +91,6 @@ export function createWindow() {
             mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
         }
     }
-
-    mainWindow.webContents.once('dom-ready', () => {
-        extensionManager.loadChromeExtensions();
-    });
 
     mainWindow.webContents.on('dom-ready', () => {
         console.log('DOM Ready');
@@ -136,10 +139,18 @@ export function createWindow() {
 
 let lyricsWindow;
 
+const persistLyricsWindowBounds = () => {
+    if (!lyricsWindow || lyricsWindow.isDestroyed()) return;
+    const { x, y, width, height } = lyricsWindow.getBounds();
+    store.set('lyricsWindowPosition', { x, y });
+    store.set('lyricsWindowSize', { width, height });
+};
+
 export function createLyricsWindow() {
     const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
     const windowWidth = Math.floor(screenWidth * 0.7);
-    const windowHeight = 200;
+    const windowHeight = 128;
+    const legacyWindowHeight = 200;
 
     const savedLyricsPosition = store.get('lyricsWindowPosition') || {};
     const savedLyricsSize = store.get('lyricsWindowSize') || {
@@ -151,6 +162,7 @@ export function createLyricsWindow() {
     let y = savedLyricsPosition.y;
     let width = savedLyricsSize.width || windowWidth;
     let height = savedLyricsSize.height || windowHeight;
+    if (height === legacyWindowHeight) height = windowHeight;
 
     // 限制窗口尺寸不超过屏幕
     width = Math.min(width, screenWidth);
@@ -173,7 +185,9 @@ export function createLyricsWindow() {
         x: x,
         y: y,
         minWidth: 800,
-        minHeight: 200,
+        minHeight: windowHeight,
+        maxWidth: screenWidth,
+        maxHeight: screenHeight,
         alwaysOnTop: true,
         frame: false,
         transparent: true,
@@ -192,10 +206,8 @@ export function createLyricsWindow() {
         }
     });
 
-    lyricsWindow.on('resize', () => {
-        const [width, height] = lyricsWindow.getSize();
-        store.set('lyricsWindowSize', { width, height });
-    });
+    lyricsWindow.on('resize', persistLyricsWindowBounds);
+    lyricsWindow.on('move', persistLyricsWindowBounds);
     mainWindow.lyricsWindow = lyricsWindow;
     lyricsWindow.on('closed', () => {
         mainWindow.lyricsWindow = null;
@@ -275,19 +287,20 @@ export function createTray(mainWindow, title = '') {
 
     const contextMenu = Menu.buildFromTemplate([
         {
-            label: t('project-home'),
-            icon: getIconPath('home.png', 'menu'),
+            label: t('show-hide'),
+            accelerator: 'CmdOrCtrl+Shift+S',
+            icon: getIconPath('show.png', 'menu'),
             click: () => {
-                shell.openExternal('https://Music.MoeKoe.cn');
+                if (mainWindow) {
+                    if (mainWindow.isVisible()) {
+                        mainWindow.hide();
+                    } else {
+                        mainWindow.show();
+                    }
+                }
             }
         },
-        {
-            label: t('report-bug'),
-            icon: getIconPath('bug.png', 'menu'),
-            click: () => {
-                shell.openExternal('https://github.com/iAJue/MoeKoeMusic/issues');
-            }
-        },
+        { type: 'separator' },
         {
             label: t('prev-track'),
             icon: getIconPath('prev.png', 'menu'),
@@ -312,6 +325,21 @@ export function createTray(mainWindow, title = '') {
                 mainWindow.webContents.send('play-next-track');
             }
         },
+        { type: 'separator' },
+        {
+            label: t('project-home'),
+            icon: getIconPath('home.png', 'menu'),
+            click: () => {
+                shell.openExternal('https://Music.MoeKoe.cn');
+            }
+        },
+        {
+            label: t('report-bug'),
+            icon: getIconPath('bug.png', 'menu'),
+            click: () => {
+                shell.openExternal('https://github.com/iAJue/MoeKoeMusic/issues');
+            }
+        },
         {
             label: t('check-updates'),
             icon: getIconPath('update.png', 'menu'),
@@ -328,20 +356,7 @@ export function createTray(mainWindow, title = '') {
                 app.quit();
             }
         },
-        {
-            label: t('show-hide'),
-            accelerator: 'CmdOrCtrl+Shift+S',
-            icon: getIconPath('show.png', 'menu'),
-            click: () => {
-                if (mainWindow) {
-                    if (mainWindow.isVisible()) {
-                        mainWindow.hide();
-                    } else {
-                        mainWindow.show();
-                    }
-                }
-            }
-        },
+        { type: 'separator' },
         {
             label: t('quit'),
             accelerator: 'CmdOrCtrl+Q',
@@ -353,28 +368,46 @@ export function createTray(mainWindow, title = '') {
         }
     ]);
 
+    const useCustomTrayMenu = !!mainWindow && store.get('settings')?.customTrayMenu === 'custom';
+    const useLinuxCustomTrayMenu = process.platform === 'linux' && useCustomTrayMenu;
     switch (process.platform) {
         case 'linux':
+            if (useLinuxCustomTrayMenu) {
+                tray.on('click', () => {
+                    void customTrayMenuService.toggle();
+                });
+                break;
+            }
+            customTrayMenuService.hide();
             tray.setContextMenu(contextMenu);
             break;
         default:
             tray.on('right-click', () => {
+                if (useCustomTrayMenu) {
+                    void customTrayMenuService.toggle();
+                    return;
+                }
+                customTrayMenuService.hide();
                 tray.popUpContextMenu(contextMenu);
             });
     }
-    tray.on('click', () => {
-        if (!mainWindow.isVisible()) {
+    if (!useLinuxCustomTrayMenu) {
+        tray.on('click', () => {
+            customTrayMenuService.hide();
+            if (!mainWindow.isVisible()) {
+                mainWindow.show();
+            } else if (!mainWindow.isFocused()) {
+                mainWindow.show();
+                mainWindow.focus();
+            } else {
+                mainWindow.hide(); //大概率永远不会执行
+            }
+        });
+        tray.on('double-click', () => {
+            customTrayMenuService.hide();
             mainWindow.show();
-        } else if (!mainWindow.isFocused()) {
-            mainWindow.show();
-            mainWindow.focus();
-        } else {
-            mainWindow.hide(); //大概率永远不会执行
-        }
-    });
-    tray.on('double-click', () => {
-        mainWindow.show();
-    });
+        });
+    }
     return tray;
 }
 
@@ -642,11 +675,12 @@ export function registerShortcut() {
                 mainWindow.lyricsWindow = null;
                 new Notification({
                     title: t('desktop-lyrics-closed'),
-                    body: t('this-time-only'),
                     icon: getIconPath('logo.png')
                 }).show();
+                syncDesktopLyricsSetting('off');
             } else {
                 createLyricsWindow();
+                syncDesktopLyricsSetting('on');
             }
         }
         if (settings?.shortcuts?.toggleDesktopLyrics) {
@@ -663,6 +697,14 @@ export function registerShortcut() {
         });
     }
 }
+
+const syncDesktopLyricsSetting = (value) => {
+    const settings = store.get('settings') || {};
+    store.set('settings', {
+        ...settings,
+        desktopLyrics: value
+    });
+};
 
 // 播放启动问候语
 export function playStartupSound() {
@@ -747,6 +789,7 @@ export function setThumbarButtons(mainWindow, isPlaying = false) {
 // 处理自定义协议相关
 let hash = "";
 let listid = "";
+let teamcode;
 let protocolMainWindow = null;
 
 // 注册自定义协议
@@ -803,6 +846,7 @@ function handleUrl(url) {
     // 提取所有参数并更新全局变量
     hash = urlObj.searchParams.get("hash") || "";
     listid = urlObj.searchParams.get("listid") || "";
+    teamcode = urlObj.searchParams.get('code') || '';
 
     // 根据路径和参数决定发送什么数据到渲染进程
     if (protocolMainWindow && protocolMainWindow.webContents) {
@@ -810,6 +854,7 @@ function handleUrl(url) {
         protocolMainWindow.webContents.send('url-params', {
             hash,
             listid,
+            teamcode,
             urlPath: urlObj.pathname.substring(1) // 去掉前导斜杠
         });
     }
@@ -821,15 +866,17 @@ export function sendHashAfterLoad(mainWindow) {
         protocolMainWindow = mainWindow;
     }
 
-    if ((hash || listid) && protocolMainWindow) {
+    if ((hash || listid || teamcode) && protocolMainWindow) {
         protocolMainWindow.webContents.on('did-finish-load', () => {
             setTimeout(() => {
                 protocolMainWindow.webContents.send('url-params', {
                     hash,
                     listid,
-                    urlPath: 'share'
+                    teamcode,
+                    urlPath: teamcode? 'join': 'share'
                 });
             }, 1000);
         });
     }
 }
+

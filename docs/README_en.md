@@ -1,9 +1,15 @@
 > **Note**: This English document may not be updated in a timely manner. For the latest content, please refer to the [Simplified Chinese version](https://github.com/iAJue/MoeKoeMusic/README.md).
 <br />
 <p align="center">
-<img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/logo.png " alt="Logo" width="156" height="156">
+<img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/hero.png " alt="hero" width="250" height="250">
 <h2 align="center" style="font-weight: 600">MoeKoe Music</h2>
-
+  <p align="center">
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases/latest"><img src="https://img.shields.io/github/v/release/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/stargazers"><img src="https://img.shields.io/github/stars/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases"><img src="https://img.shields.io/github/downloads/MoeKoeMusic/MoeKoeMusic/total?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/iAJue"><img src="https://img.shields.io/badge/%F0%9F%8E%89_Create_by_iAJue-with_Love_%E2%9D%A4-pink?style=flat-square" /></a>
+  </p>
 <p align="center">
 An open-source, concise, and aesthetically pleasing third-party client for KuGou
 <br />
@@ -42,31 +48,86 @@ I said on my personal introduction page that I particularly enjoy listening to m
 -  🔴  KuGou account login (scan code/phone/account login)
 -  📃  Support lyric display
 -  📻  Daily recommended songs
--  🚫🤝  No social function
--  🔗  Official server direct connection, without any third-party APIs
+-  🔕  No social function
+-  🔗  Official server direct connection
 -  ✔️  Automatically claim VIP every day, log in to become VIP
 -  🎨  Theme color switching
 -  👋  Initiate greetings
 -  ⚙️  Multi platform support
--  🛠  More features under development
+-  🧩  Super plugin system
+-  🧭  Personalized layout settings
+-  🥚  Hidden features and easter egg system
+-  🚀  Novice guide system
+-  ✨  More features are yours to explore
 
 ## 📢 Todo List
 - [x]  📺  Support MV playback
 - [x]  🌚 Light/Dark Mode  Automatic switching
 - [x]  👆  Support Touch Bar
-- [x]  🖥️  Support PWA, you can click on the right side of the address bar in Chrome/Edge ➕  Install to computer
-- [ ]  🎧  Support Mpris
+- [x]  🖥️  Support PWA
 - [x]  ⌨️   Global shortcut keys
 - [x]  🤟  Multi language support
 - [x]  📻  Desktop Lyrics
 - [x]  ⚙️  System architecture optimization
 - [x]  🎶  Songs, playlists/favorites, cancellation
 
-Please check the  for the update log [Commits](https://github.com/iAJue/MoeKoeMusic/commits/main/)
+[View changelog](http://music.moekoe.cn/changelog.html)
 
-##  📦 Installation
+## 📦️ Installation
 
-Accessing for this project [Release](https://github.com/iAJue/MoeKoeMusic/releases)Download the installation package from the page.
+### 1. Client Installation
+
+Visit the [Releases](https://github.com/iAJue/MoeKoeMusic/releases) page of this project to download the installation package.
+
+### 2. Web Installation (Docker)
+
+* Note: Please open the corresponding port on the server after deployment, or use a reverse proxy for domain access.
+
+  1. Method 1: Quick Start (Recommended)
+
+  ```
+  git clone https://github.com/iAJue/MoeKoeMusic.git
+  cd MoeKoeMusic
+  git submodule update --init --recursive
+  docker compose up -d &
+  ```
+
+  2. ~~Method 2: One-click installation using docker-compose (image not yet uploaded officially)~~
+  
+  ```
+  docker run -d --name MoeKoeMusic -p 8080:8080 -p 6521:6521 -e PORT=6521 -e platform=lite iajue/moekoe-music:latest
+  ```
+
+  3. Method 3: Baota Container Orchestration
+
+  * Remote image, version may be behind the official
+  
+  ```
+  version: '3.3'
+  
+  services:
+    moekoe-music:
+    # Image address
+    image: registry.cn-wulanchabu.aliyuncs.com/youngxj/moekoe-music:latest
+    container_name: moekoe-music # Container name
+    restart: unless-stopped # Auto restart
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - PORT=6521
+      - platform=lite
+    ports: # Port mapping
+      - "8080:8080"  # Frontend service
+      - "6521:6521"  # API service
+  
+  ```
+  
+  Copy the content above and paste it into the container orchestration in the Baota panel, name the orchestration as MoeKoeMusic, and click deploy.
+### 3. One-Click Deployment
+[![使用 EdgeOne Pages 部署](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://edgeone.ai/pages/new?template=https://github.com/iAJue/moekoemusic&install-command=npm%20install&output-directory=dist&root-directory=.%2F&build-command=npm%20run%20build&env=VITE_APP_API_URL)
+
+You need to fill in your own API address in the environment variable VITE_APP_API_URL.
 
 ##  ⚙️  development
 
@@ -242,7 +303,10 @@ The API source code comes from [MakcRe/KuGouMusicApi](https://github.com/MakcRe/
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/6.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/7.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/8.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/9.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/10.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/11.png)
 
 ## 🗓️ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=iAJue/MoeKoeMusic&type=Date)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)
+[![Star History Chart](https://api.star-history.com/chart?repos=MoeKoeMusic/MoeKoeMusic&type=date&legend=top-left&sealed_token=unIw8k8CbengL1CW5XVoW-psSsTQHjp7X6Hchrr9WiEh4baeFZXunI95J9V8nnY8XTWrT8UuvRBXScevzXLRlhTID0-_V200iw9TFChclu1-28maCH3NutInvRl6nQ1jDMXpInpefFixeHYDr8BCn9fYqiNtZAoK30Vi46s7QPQQU80mJstgjgeqWjXf)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)

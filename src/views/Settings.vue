@@ -1,34 +1,48 @@
 <template>
     <div class="settings-page">
         <div class="settings-sidebar">
-            <div v-for="(section, sectionIndex) in settingSections" :key="sectionIndex" 
-                 class="sidebar-item" 
-                 :class="{ active: activeTab === sectionIndex }"
-                 @click="activeTab = sectionIndex">
-                <i :class="getSectionIcon(section.title)"></i>
+            <div v-for="(section, sectionIndex) in settingSections" :key="sectionIndex" class="sidebar-item"
+                :class="{ active: activeTab === sectionIndex }" @click="activeTab = sectionIndex">
+                <i :class="section.icon"></i>
                 <span>{{ section.title }}</span>
             </div>
         </div>
-        
+
         <div class="settings-content">
-            <div v-for="(section, sectionIndex) in settingSections" :key="sectionIndex" 
-                 class="setting-section" 
-                 v-show="activeTab === sectionIndex">
+            <div v-for="(section, sectionIndex) in settingSections" :key="sectionIndex" class="setting-section"
+                v-show="activeTab === sectionIndex">
                 <h3>{{ section.title }}</h3>
                 <ExtensionManager v-if="section.title === t('cha-jian')" />
                 <div v-else class="settings-cards">
-                    <div v-for="(item, itemIndex) in section.items" :key="itemIndex"
-                        class="setting-card" @click="item.action ? item.action(item.helpLink) : openSelection(item.key, item.helpLink)">
+                    <div v-for="(item, itemIndex) in getVisibleItems(section)" :key="itemIndex" class="setting-card"
+                        :class="{ 'setting-card--toggle': isToggleItem(item) }" @click="handleCardClick(item)">
                         <div class="setting-card-header">
-                            <i :class="getItemIcon(item.key)"></i>
-                            <span>{{ item.label }}</span>
-                            <span v-if="item.showRefreshHint && showRefreshHint[item.key]" class="refresh-hint">
-                                {{ item.refreshHintText }}
-                            </span>
+                            <div class="setting-card-title">
+                                <i :class="item.itemIcon || 'fas fa-sliders-h'"></i>
+                                <span>{{ item.label }}</span>
+                                <span v-if="item.showRefreshHint && showRefreshHint[item.key]" class="refresh-hint">
+                                    {{ item.refreshHintText }}
+                                </span>
+                            </div>
+                            <button v-if="item.helpLink" type="button" class="card-help-link"
+                                :title="$t('bang-zhu')" :aria-label="$t('bang-zhu')"
+                                @click.stop="openHelpLink(item.helpLink)">
+                                <i class="fas fa-question-circle"></i>
+                            </button>
                         </div>
                         <div class="setting-card-value">
-                            <span>{{ item.icon }}{{ item.customText || selectedSettings[item.key]?.displayText }}</span>
-                            <i class="fas fa-chevron-right"></i>
+                            <template v-if="isToggleItem(item)">
+                                <span>{{ item.icon }}{{ selectedSettings[item.key]?.displayText }}</span>
+                                <button type="button" class="setting-switch" :class="{ active: isToggleEnabled(item) }"
+                                    :aria-checked="isToggleEnabled(item)" role="switch"
+                                    @click.stop="toggleSetting(item)">
+                                    <span class="setting-switch-thumb"></span>
+                                </button>
+                            </template>
+                            <template v-else>
+                                <span>{{ item.icon }}{{ item.customText || selectedSettings[item.key]?.displayText }}</span>
+                                <i class="fas fa-chevron-right"></i>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -46,20 +60,19 @@
             </div>
         </div>
 
-        <div v-if="isSelectionOpen" class="modal">
+        <teleport to="body">
+        <div v-if="isSelectionOpen" class="modal" @click.self="closeSelection">
             <div class="modal-content">
-                <a
-                    v-if="currentHelpLink"
-                    class="help-link"
-                    @click="openHelpLink"
-                    :title="$t('bang-zhu')"
-                    :aria-label="$t('bang-zhu')"
-                >
+                <a v-if="currentHelpLink" class="help-link" @click="openHelpLink" :title="$t('bang-zhu')"
+                    :aria-label="$t('bang-zhu')">
                     <i class="fas fa-question-circle"></i>
                 </a>
-                <h3>{{ selectionTypeMap[selectionType].title }}</h3>
-                <ul v-if="selectionType !== 'font' && selectionType !== 'audioOutputDevice'">
-                    <li v-for="option in selectionTypeMap[selectionType].options" :key="option" @click="selectOption(option)">
+                <h3>{{ getSettingItem(selectionType)?.selectionTitle }}</h3>
+                <input v-if="isFontSelection()" class="font-search" placeholder="搜索字体..."
+                    v-model="fontSearch" />
+                <ul v-if="!isFontSelection() && selectionType !== 'audioOutputDevice'">
+                    <li v-for="option in getSettingItem(selectionType)?.options || []" :key="option.value"
+                        @click="selectOption(option)">
                         {{ option.displayText }}
                     </li>
                 </ul>
@@ -67,33 +80,33 @@
                 <ul v-else-if="selectionType === 'audioOutputDevice'">
                     <li v-if="audioOutputDevicesLoading">正在获取设备列表...</li>
                     <li v-else-if="audioOutputDeviceOptions.length === 0">未检测到音频输出设备</li>
-                    <li v-else v-for="option in audioOutputDeviceOptions" :key="option.value" @click="selectOption(option)">
+                    <li v-else v-for="option in audioOutputDeviceOptions" :key="option.value"
+                        @click="selectOption(option)">
                         {{ option.displayText }}
                     </li>
                 </ul>
 
-                <div v-if="selectionType === 'font'" class="api-settings-container" @focusout="handleFontFocusOut">
-                    <div class="api-setting-item">
-                        <label>{{ $t('zi-ti-url-di-zhi') }}</label>
-                        <input type="text" v-model="fontUrlInput" class="api-input" :placeholder="$t('qing-shu-ru-zi-ti-url-di-zhi')" />
-                    </div>
-                    <div class="api-setting-item">
-                        <label>{{ $t('zi-ti-ming-cheng') }}</label>
-                        <input type="text" v-model="fontFamilyInput" class="api-input" :placeholder="$t('qing-shu-ru-zi-ti-ming-cheng')" />
-                    </div>
-                </div>
+                <ul v-else-if="isFontSelection()" class="font-list">
+                    <li v-if="fontOptionsLoading">{{ $t('jia-zai-zhong') }}</li>
+                    <li v-else-if="fontOptions.length === 0">{{ $t('mo-ren-zi-ti') }}</li>
+                    <template v-else v-for="option in fontOptions" :key="option.value">
+                        <li v-if="!fontSearch || option.displayText.toLowerCase().includes(fontSearch.toLowerCase())"
+                            :style="{ fontFamily: option.value }"
+                            @click="selectFontOption(option)"
+                            v-html="fontSearch? option.displayText.replace(
+                                new RegExp(fontSearch, 'ig'),
+                                `<mark>${fontSearch}</mark>`
+                            ): option.displayText">
+                        </li>
+                    </template>
+                    
+                </ul>
 
                 <div v-if="selectionType === 'highDpi'" class="scale-slider-container">
-                    <div class="scale-slider-label">{{ $t('suo-fang-yin-zi') }}: {{ dpiScale }} <span class="scale-slider-hint">{{ $t('tiao-zheng-hou-xu-zhong-qi') }}</span></div>
+                    <div class="scale-slider-label">{{ $t('suo-fang-yin-zi') }}: {{ dpiScale }} <span
+                            class="scale-slider-hint">{{ $t('tiao-zheng-hou-xu-zhong-qi') }}</span></div>
                     <div class="scale-slider-wrapper">
-                        <input
-                            type="range"
-                            min="0.5"
-                            max="2"
-                            step="0.1"
-                            v-model="dpiScale"
-                            class="scale-slider"
-                        />
+                        <input type="range" min="0.5" max="2" step="0.1" v-model="dpiScale" class="scale-slider" />
                         <div class="scale-marks">
                             <span>0.5</span>
                             <span>1.0</span>
@@ -103,7 +116,8 @@
                     </div>
                 </div>
 
-                <div v-if="selectionType === 'apiMode' && selectedSettings.apiMode.value === 'on'" class="api-settings-container">
+                <div v-if="selectionType === 'apiMode' && selectedSettings.apiMode.value === 'on'"
+                    class="api-settings-container">
                     <div class="api-setting-item">
                         <label>{{ $t('api-di-zhi') }}</label>
                         <input type="text" :value="defaultApiBaseUrl" readonly class="api-input" />
@@ -116,21 +130,14 @@
                         {{ $t('mo-ren-api-ti-shi') }}
                     </div>
                 </div>
-                <div v-if="selectionType === 'apiBaseUrlMode' && selectedSettings.apiBaseUrlMode.value === 'custom'" class="api-settings-container">
+                <div v-if="selectionType === 'apiBaseUrlMode' && selectedSettings.apiBaseUrlMode.value === 'custom'"
+                    class="api-settings-container">
                     <div class="api-setting-item">
-                        <input
-                            type="text"
-                            v-model="apiBaseUrlForm.url"
-                            class="api-input"
-                            :placeholder="`RPC地址（留空使用默认：${defaultApiBaseUrl}）`"
-                        />
+                        <input type="text" v-model="apiBaseUrlForm.url" class="api-input"
+                            :placeholder="`RPC地址（留空使用默认：${defaultApiBaseUrl}）`" />
                     </div>
                     <div class="proxy-actions">
-                        <button
-                            @click="testApiBaseUrl"
-                            :disabled="apiBaseUrlForm.testing"
-                            class="test-button"
-                        >
+                        <button @click="testApiBaseUrl" :disabled="apiBaseUrlForm.testing" class="test-button">
                             {{ apiBaseUrlForm.testing ? $t('zheng-zai-ce-shi') : $t('ce-shi-lian-jie') }}
                         </button>
                         <button class="primary" @click="saveApiBaseUrl">
@@ -141,21 +148,14 @@
                         {{ apiBaseUrlForm.testResult }}
                     </div>
                 </div>
-                <div v-if="selectionType === 'proxy' && selectedSettings.proxy.value === 'on'" class="proxy-settings-container">
+                <div v-if="selectionType === 'proxy' && selectedSettings.proxy.value === 'on'"
+                    class="proxy-settings-container">
                     <div class="api-setting-item">
-                        <input
-                            type="text"
-                            v-model="proxyForm.url"
-                            class="api-input"
-                            :placeholder="$t('dai-li-placeholder')"
-                        />
+                        <input type="text" v-model="proxyForm.url" class="api-input"
+                            :placeholder="$t('dai-li-placeholder')" />
                     </div>
                     <div class="proxy-actions">
-                        <button
-                            @click="testProxyConnection"
-                            :disabled="proxyForm.testing"
-                            class="test-button"
-                        >
+                        <button @click="testProxyConnection" :disabled="proxyForm.testing" class="test-button">
                             {{ proxyForm.testing ? $t('zheng-zai-ce-shi') : $t('ce-shi-lian-jie') }}
                         </button>
                         <button class="primary" @click="saveProxy">
@@ -169,21 +169,21 @@
                 <button @click="closeSelection">{{ $t('guan-bi-an-niu') }}</button>
             </div>
         </div>
+        </teleport>
 
         <!-- 快捷键设置弹窗 -->
-        <div v-if="showShortcutModal" class="shortcut-modal">
+        <teleport to="body">
+        <div v-if="showShortcutModal" class="shortcut-modal" @click.self="closeShortcutSettings">
             <div class="shortcut-modal-content">
                 <h3>{{ $t('kuai-jie-jian-she-zhi') }}</h3>
                 <div class="shortcut-list">
                     <div class="shortcut-item" v-for="(config, key) in shortcutConfigs" :key="key">
                         <span>{{ config.label }}</span>
-                        <div class="shortcut-input"
-                             @click="startRecording(key)"
-                             :class="{ 'recording': recordingKey === key }">
-                            {{ shortcuts[key] || $t('dian-ji-she-zhi-kuai-jie-jian') }}
-                            <div v-if="shortcuts[key]"
-                                 class="clear-shortcut"
-                                 @click.stop="clearShortcut(key)">
+                        <div class="shortcut-input" @click="startRecording(key)"
+                            :class="{ 'recording': recordingKey === key }">
+                            <!-- {{ displayShortcut(key) || $t('dian-ji-she-zhi-kuai-jie-jian') }} -->
+                            <span v-html="displayShortcut(key) || $t('dian-ji-she-zhi-kuai-jie-jian')" />
+                            <div v-if="shortcuts[key]" class="clear-shortcut" @click.stop="clearShortcut(key)">
                                 ×
                             </div>
                         </div>
@@ -195,16 +195,19 @@
                 </div>
             </div>
         </div>
+        </teleport>
     </div>
 </template>
 
 <script setup>
-import { ref, onMounted, getCurrentInstance, onUnmounted, computed, reactive } from 'vue';
+import { ref, onMounted, getCurrentInstance, onUnmounted, reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MoeAuthStore } from '../stores/store';
 import ExtensionManager from '@/components/ExtensionManager.vue';
-import { requestMicrophonePermission } from '../utils/utils';
+import { applyCustomFont, requestMicrophonePermission } from '../utils/utils';
 import { DEFAULT_API_BASE_URL, validateApiBaseUrl, testApiBaseUrl as testApiBaseUrlRequest } from '@/utils/apiBaseUrl';
+import { useSettingsConfig } from '@/config/settings';
+import { ONBOARDING_GUIDE_EVENT } from '@/config/onboardingGuide';
 
 const MoeAuth = MoeAuthStore();
 const { t } = useI18n();
@@ -214,535 +217,47 @@ const platform = ref('');
 const activeTab = ref(0);
 const defaultApiBaseUrl = DEFAULT_API_BASE_URL;
 
-// 设置配置
-const selectedSettings = ref({
-    language: { displayText: '🌏 ' + t('zi-dong'), value: '' },
-    themeColor: { displayText: t('shao-nv-fen'), value: 'pink' },
-    theme: { displayText: '☀️ ' + t('qian-se'), value: 'light' },
-    nativeTitleBar: { displayText: t('guan-bi'), value: 'off' },
-    quality: { displayText: t('pu-tong-yin-zhi'), value: 'normal' },
-    lyricsBackground: { displayText: t('da-kai'), value: 'on' },
-    desktopLyrics: { displayText: t('guan-bi'), value: 'off' },
-    statusBarLyrics: { displayText: t('guan-bi'), value: 'off' },
-    lyricsFontSize: { displayText: t('zhong'), value: '24px' },
-    lyricsTranslation: { displayText: t('da-kai'), value: 'on' },
-    lyricsAlign: { displayText: t('ju-zhong'), value: 'center' },
-    font: { displayText: t('mo-ren-zi-ti'), value: '' },
-    fontUrl: { displayText: t('mo-ren-zi-ti'), value: '' },
-    greetings: { displayText: t('kai-qi'), value: 'on' },
-    gpuAcceleration: { displayText: t('guan-bi'), value: 'off' },
-    minimizeToTray: { displayText: t('da-kai'), value: 'on' },
-    highDpi: { displayText: t('guan-bi'), value: 'off' },
-    dpiScale: { displayText: '1.0', value: '1.0' },
-    apiMode: { displayText: t('guan-bi'), value: 'off' },
-    touchBar: { displayText: t('guan-bi'), value: 'off' },
-    autoStart: { displayText: t('guan-bi'), value: 'off' },
-    startMinimized: { displayText: t('guan-bi'), value: 'off' },
-    preventAppSuspension: { displayText: t('guan-bi'), value: 'off' },
-    networkMode: { displayText: t('zhu-wang'), value: 'mainnet' },
-    proxy: { displayText: t('guan-bi'), value: 'off' },
-    proxyUrl: { displayText: '', value: '' },
-    apiBaseUrlMode: { displayText: '默认', value: 'default' },
-    apiBaseUrl: { displayText: '', value: '' },
-    dataSource: { displayText: t('gai-nian-ban-xuan-xiang'), value: 'concept' },
-    loudnessNormalization: { displayText: t('guan-bi'), value: 'off' },
-    pauseOnAudioOutputChange: { displayText: t('guan-bi'), value: 'off' },
-    audioOutputDevice: { displayText: '默认', value: 'default' },
+const {
+    settingSections,
+    shortcutConfigs
+} = useSettingsConfig(t, {
+    openShortcutSettings: () => openShortcutSettings(),
+    installPWA: () => installPWA(),
+    openOnboardingGuide: () => openOnboardingGuide()
 });
 
-// 设置分区配置
-const settingSections = computed(() => [
-    {
-        title: t('jie-mian'),
-        items: [
-            {
-                key: 'language',
-                label: t('yu-yan')
-            },
-            {
-                key: 'themeColor',
-                label: t('zhu-se-tiao'),
-                icon: '🎨 '
-            },
-            {
-                key: 'theme',
-                label: t('wai-guan')
-            },
-            {
-                key: 'nativeTitleBar',
-                label: t('native-title-bar'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao')
-            },
-            {
-                key: 'font',
-                label: t('zi-ti-she-zhi'),
-                showRefreshHint: true,
-                refreshHintText: t('shua-xin-hou-sheng-xiao'),
-                helpLink:'https://music.moekoe.cn/guide/font-settings.html'
-            }
-        ]
-    },
-    {
-        title: t('sheng-yin'),
-        items: [
-            {
-                key: 'quality',
-                label: t('yin-zhi-xuan-ze'),
-                icon: '🎧 '
-            },
-            {
-                key: 'loudnessNormalization',
-                label: t('ping-heng-yin-pin-xiang-du'),
-                icon: '🎚️ ',
-                showRefreshHint: true,
-                refreshHintText: t('shua-xin-hou-sheng-xiao')
-            },
-            {
-                key: 'pauseOnAudioOutputChange',
-                label: '输出设备变化自动暂停',
-                icon: '🎧 ',
-                helpLink:'https://music.moekoe.cn/guide/auto-pause-on-output-device-change.html'
-            },
-            {
-                key: 'audioOutputDevice',
-                label: '音频输出设备',
-                icon: '🔊 ',
-                helpLink:'https://music.moekoe.cn/guide/audio-output-device.html'
-            },
-            {
-                key: 'greetings',
-                label: t('qi-dong-wen-hou-yu'),
-                icon: '👋 '
-            },
-            {
-                key: 'dataSource',
-                label: t('shu-ju-yuan'),
-                icon: '🔌 ',
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao'),
-                helpLink:'https://music.moekoe.cn/guide/data-source.html'
-            }
-        ]
-    },
-    {
-        title: t('ge-ci'),
-        items: [
-            {
-                key: 'lyricsBackground',
-                label: t('xian-shi-ge-ci-bei-jing'),
-                showRefreshHint: true,
-                refreshHintText: t('shua-xin-hou-sheng-xiao')
-            },
-            {
-                key: 'lyricsFontSize',
-                label: t('ge-ci-zi-ti-da-xiao'),
-                showRefreshHint: true,
-                refreshHintText: t('shua-xin-hou-sheng-xiao')
-            },
-            {
-                key: 'desktopLyrics',
-                label: t('xian-shi-zhuo-mian-ge-ci')
-            },
-            {
-                key: 'statusBarLyrics',
-                label: t('zhuang-tai-lan-ge-ci'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao')
-            },
-            {
-                key: 'lyricsTranslation',
-                label: t('ge-ci-fan-yi')
-            },
-            {
-                key: 'lyricsAlign',
-                label: t('dui-qi-fang-shi'),
-            }
-        ]
-    },
-    {
-        title: t('cha-jian'),
-        items: []
-    },
-    {
-        title: t('xi-tong'),
-        items: [
-            {
-                key: 'gpuAcceleration',
-                label: t('jin-yong-gpu-jia-su-zhong-qi-sheng-xiao'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao')
-            },
-            {
-                key: 'highDpi',
-                label: t('shi-pei-gao-dpi'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao')
-            },
-            {
-                key: 'minimizeToTray',
-                label: t('guan-bi-shi-minimize-to-tray')
-            },
-            {
-                key: 'autoStart',
-                label: t('kai-ji-zi-qi-dong')
-            },
-            {
-                key: 'networkMode',
-                label: t('wang-luo-mo-shi'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao'),
-                helpLink:'https://music.moekoe.cn/guide/network-modes.html'
-            },
-            {
-                key: 'startMinimized',
-                label: t('qi-dong-shi-zui-xiao-hua')
-            },
-            {
-                key: 'preventAppSuspension',
-                label: t('zu-zhi-xi-tong-xiu-mian'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao')
-            },
-            {
-                key: 'apiMode',
-                label: t('api-mo-shi'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao')
-            },
-             {
-                key: 'apiBaseUrlMode',
-                label: 'RPC地址',
-                showRefreshHint: true,
-                refreshHintText: t('shua-xin-hou-sheng-xiao'),
-                helpLink:'https://music.moekoe.cn/guide/rpc-api-base-url.html'
-             },
-            {
-                key: 'touchBar',
-                label: 'TouchBar',
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao')
-            },
-            {
-                key: 'shortcuts',
-                label: t('quan-ju-kuai-jie-jian'),
-                customText: t('zi-ding-yi-kuai-jie-jian'),
-                action: openShortcutSettings
-            },
-            {
-                key: 'pwa',
-                label: t('pwa-app'),
-                customText: t('install'),
-                action: installPWA
-            },
-            {
-                key: 'proxy',
-                label: t('wang-luo-dai-li'),
-                showRefreshHint: true,
-                refreshHintText: t('zhong-qi-hou-sheng-xiao'),
-                helpLink:'https://music.moekoe.cn/guide/proxy-settings.html'
-            }
-        ]
-    }
-]);
+const createSelectedSettings = (sections) => {
+    const selectedSettings = {};
 
-// 获取每个部分的图标
-const getSectionIcon = (title) => {
-    const iconMap = {
-        [t('jie-mian')]: 'fas fa-palette',
-        [t('sheng-yin')]: 'fas fa-volume-up',
-        [t('ge-ci')]: 'fas fa-music',
-        [t('cha-jian')]: 'fas fa-puzzle-piece',
-        [t('xi-tong')]: 'fas fa-cog'
-    };
-    return iconMap[title] || 'fas fa-cog';
+    sections.forEach(section => {
+        section.items.forEach(item => {
+            if (!Object.prototype.hasOwnProperty.call(item, 'defaultValue')) return;
+            const option = item.options?.find(option => option.value === item.defaultValue);
+            selectedSettings[item.key] = {
+                displayText: item.defaultDisplayText ?? option?.displayText ?? '',
+                value: item.defaultValue
+            };
+        });
+    });
+
+    return selectedSettings;
 };
 
-// 获取每个设置项的图标
-const getItemIcon = (key) => {
-    const iconMap = {
-        'language': 'fas fa-language',
-        'themeColor': 'fas fa-paint-brush',
-        'theme': 'fas fa-moon',
-        'nativeTitleBar': 'fas fa-window-maximize',
-        'font': 'fas fa-font',
-        'quality': 'fas fa-headphones',
-        'loudnessNormalization': 'fas fa-sliders-h',
-        'pauseOnAudioOutputChange': 'fas fa-exchange-alt',
-        'audioOutputDevice': 'fas fa-volume-up',
-        'greetings': 'fas fa-comment',
-        'lyricsBackground': 'fas fa-image',
-        'lyricsFontSize': 'fas fa-text-height',
-        'desktopLyrics': 'fas fa-desktop',
-        'statusBarLyrics': 'fas fa-align-justify',
-        'lyricsTranslation': 'fas fa-language',
-        'lyricsAlign': 'fas fa-align-center',
-        'gpuAcceleration': 'fas fa-microchip',
-        'highDpi': 'fas fa-expand',
-        'minimizeToTray': 'fas fa-window-minimize',
-        'autoStart': 'fas fa-power-off',
-        'startMinimized': 'fas fa-compress',
-        'preventAppSuspension': 'fas fa-clock',
-        'apiMode': 'fas fa-code',
-        'apiBaseUrlMode': 'fas fa-link',
-        'touchBar': 'fas fa-tablet-alt',
-        'shortcuts': 'fas fa-keyboard',
-        'pwa': 'fas fa-mobile-alt',
-        'proxy': 'fas fa-random'
-    };
-    return iconMap[key] || 'fas fa-sliders-h';
-};
+const selectedSettings = ref(createSelectedSettings(settingSections.value));
 
 const isSelectionOpen = ref(false);
 const currentHelpLink = ref('');
 const selectionType = ref('');
-const fontUrlInput = ref('');
-const fontFamilyInput = ref('');
+const fontOptions = ref([]);
+const fontOptionsLoading = ref(false);
+const fontSearch = ref('');
 
-// 选项配置
-const selectionTypeMap = {
-    language: {
-        title: t('xuan-ze-yu-yan'),
-        options: [
-            { displayText: '🇨🇳 简体中文', value: 'zh-CN' },
-            { displayText: '🇨🇳 繁體中文', value: 'zh-TW' },
-            { displayText: '🇺🇸 English', value: 'en' },
-            { displayText: '🇷🇺 Русский', value: 'ru' },
-            { displayText: '🇯🇵 日本語', value: 'ja' },
-            { displayText: '🇰🇷 한국어', value: 'ko' }
-        ]
-    },
-    themeColor: {
-        title: t('xuan-ze-zhu-se-tiao'),
-        options: [
-            { displayText: t('shao-nv-fen'), value: 'pink' },
-            { displayText: t('nan-nan-lan'), value: 'blue' },
-            { displayText: t('tou-ding-lv'), value: 'green' },
-            { displayText: t('mi-gan-cheng'), value: 'orange' }
-        ]
-    },
-    theme: {
-        title: t('xuan-ze-wai-guan'),
-        options: [
-            { displayText: '🌗 ' + t('zi-dong'), value: 'auto' },
-            { displayText: '☀️ ' + t('qian-se'), value: 'light' },
-            { displayText: '🌙 ' + t('shen-se'), value: 'dark' }
-        ]
-    },
-    nativeTitleBar: {
-        title: t('native-title-bar'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    quality: {
-        title: t('yin-zhi-xuan-ze'),
-        options: [
-            { displayText: t('pu-tong-yin-zhi'), value: 'normal' },
-            { displayText: t('gao-yin-zhi-320kbps'), value: 'high' },
-            { displayText: t('wu-sun-yin-zhi-1104kbps'), value: 'lossless' },
-            { displayText: t('hires-yin-zhi'), value: 'hires' }
-        ]
-    },
-    lyricsBackground: {
-        title: t('xian-shi-ge-ci-bei-jing'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    desktopLyrics: {
-        title: t('xian-shi-zhuo-mian-ge-ci'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    statusBarLyrics: {
-        title: t('zhuang-tai-lan-ge-ci'),
-        options: [
-            { displayText: t('da-kai') + t('jin-zhi-chi-mac'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    lyricsFontSize: {
-        title: t('ge-ci-zi-ti-da-xiao'),
-        options: [
-            { displayText: t('xiao'), value: '20px' },
-            { displayText: t('zhong'), value: '24px' },
-            { displayText: t('da'), value: '32px' }
-        ]
-    },
-    greetings: {
-        title: t('qi-dong-wen-hou-yu'),
-        options: [
-            { displayText: t('kai-qi'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    gpuAcceleration: {
-        title: t('jin-yong-gpu-jia-su-zhong-qi-sheng-xiao'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    minimizeToTray: {
-        title: t('guan-bi-shi-minimize-to-tray'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    highDpi: {
-        title: t('shi-pei-gao-dpi'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    lyricsTranslation: {
-        title: t('ge-ci-fan-yi'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    lyricsAlign: {
-        title: t('dui-qi-fang-shi'),
-        options: [
-            { displayText: t('ju-zuo'), value: 'left' },
-            { displayText: t('ju-zhong'), value: 'center' },
-        ]
-    },
-    dpiScale: {
-        title: t('suo-fang-yin-zi'),
-        options: [
-            { displayText: '1.0', value: '1.0' }
-        ]
-    },
-    font: {
-        title: t('zi-ti-she-zhi'),
-        options: [
-            { displayText: t('mo-ren-zi-ti'), value: '' }
-        ]
-    },
-    fontUrl: {
-        title: t('zi-ti-wen-jian-di-zhi'),
-        options: [
-            { displayText: t('mo-ren-zi-ti'), value: '' }
-        ]
-    },
-    apiMode: {
-        title: t('api-mo-shi'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    apiBaseUrlMode: {
-        title: 'RPC地址',
-        options: [
-            { displayText: '默认', value: 'default' },
-            { displayText: '自定义', value: 'custom' }
-        ]
-    },
-    touchBar: {
-        title: 'TouchBar',
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    autoStart: {
-        title: t('kai-ji-zi-qi-dong'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    startMinimized: {
-        title: t('qi-dong-shi-zui-xiao-hua'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    preventAppSuspension: {
-        title: t('zu-zhi-xi-tong-xiu-mian'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    networkMode: {
-        title: t('wang-luo-jie-dian'),
-        options: [
-            { displayText: t('zhu-wang'), value: 'mainnet' },
-            { displayText: t('ce-wang'), value: 'testnet' },
-            { displayText: t('kai-fa-wang'), value: 'devnet' }
-        ]
-    },
-    proxy: {
-        title: t('wang-luo-dai-li'),
-        options: [
-            { displayText: t('qi-yong'), value: 'on' },
-            { displayText: t('jin-yong'), value: 'off' }
-        ]
-    },
-    proxyUrl: {
-        title: t('dai-li-di-zhi'),
-        options: []
-    },
-    dataSource: {
-        title: t('shu-ju-yuan'),
-        options: [
-            { displayText: t('gai-nian-ban-xuan-xiang'), value: 'concept' },
-            { displayText: t('zheng-shi-ban'), value: 'official' }
-        ]
-    },
-    loudnessNormalization: {
-        title: t('ping-heng-yin-pin-xiang-du'),
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    pauseOnAudioOutputChange: {
-        title: '输出设备变化自动暂停',
-        options: [
-            { displayText: t('da-kai'), value: 'on' },
-            { displayText: t('guan-bi'), value: 'off' }
-        ]
-    },
-    audioOutputDevice: {
-        title: '音频输出设备',
-        options: []
-    },
-
-};
-
-const showRefreshHint = ref({
-    nativeTitleBar: false,
-    lyricsBackground: false,
-    lyricsFontSize: false,
-    lyricsAlign: false,
-    gpuAcceleration: false,
-    highDpi: false,
-    font: false,
-    touchBar: false,
-    preventAppSuspension: false,
-    networkMode: false,
-    apiMode: false,
-    apiBaseUrlMode: false,
-    proxy: false,
-    dataSource: false,
-    statusBarLyrics: false,
-});
+const showRefreshHint = ref({});
 
 const audioOutputDeviceOptions = ref([]);
 const audioOutputDevicesLoading = ref(false);
+
+const isFontSelection = (type = selectionType.value) => ['font', 'desktopLyricsFont'].includes(type);
 
 const updateAudioOutputDeviceDisplayText = async (deviceId) => {
     if (!deviceId || deviceId === 'default') {
@@ -798,20 +313,59 @@ const loadAudioOutputDevices = async () => {
     }
 };
 
+const loadLocalFonts = async () => {
+    fontOptionsLoading.value = true;
+
+    try {
+        if (!window.queryLocalFonts) {
+            fontOptions.value = [];
+            return;
+        }
+
+        const fonts = await window.queryLocalFonts();
+        const familyMap = new Map();
+        for (const font of fonts) {
+            const family = font.family;
+            const name = font.fullName;
+            if (!family || !name) continue;
+
+            if (!familyMap.has(family) || name.length < familyMap.get(family).name.length) {
+                familyMap.set(family, {
+                    // 如果 fullName 太长了那就说明是变体名，直接用字族名代替
+                    name: name.length > family.length? family: name,
+                    family
+                });
+            }
+        }
+
+        const families = [...familyMap.values()].sort((a, b) =>
+            a.family.localeCompare(b.family)
+        );
+        fontOptions.value = [
+            { displayText: t('mo-ren-zi-ti'), value: '' },
+            ...families.map(f => ({
+                displayText: f.name === f.family? f.family: `${f.name} (${f.family})`,
+                value: f.family
+            }))
+        ];
+    } catch {
+        fontOptions.value = [];
+    } finally {
+        fontOptionsLoading.value = false;
+    }
+};
+
 const openSelection = (type, helpLink) => {
     isSelectionOpen.value = true;
     selectionType.value = type;
-    currentHelpLink.value = helpLink || selectionTypeMap[type]?.helpLink || '';
+    currentHelpLink.value = helpLink || getSettingItem(type)?.helpLink || '';
 
     if (type === 'highDpi') {
         dpiScale.value = parseFloat(selectedSettings.value.dpiScale?.value || '1.0');
     }
 
-    if (type === 'font') {
-        fontUrlInput.value = selectedSettings.value.fontUrl?.value || '';
-        fontFamilyInput.value = selectedSettings.value.font?.value || '';
-    }
-    
+    if (isFontSelection(type)) void loadLocalFonts();
+
     if (type === 'proxy') {
         proxyForm.url = selectedSettings.value.proxyUrl?.value || '';
     }
@@ -837,104 +391,176 @@ const openHelpLink = () => {
     }
 };
 
-    const selectOption = async (option) => {
-    const electronFeatures = ['desktopLyrics', 'statusBarLyrics', 'gpuAcceleration', 'minimizeToTray', 'highDpi', 'nativeTitleBar', 'touchBar', 'autoStart', 'startMinimized', 'preventAppSuspension', 'networkMode', 'poxySettings', 'apiMode', 'dataSource', 'statusBarLyrics'];
-    if (!isElectron() && electronFeatures.includes(selectionType.value)) {
-        window.$modal.alert(t('fei-ke-hu-duan-huan-jing-wu-fa-qi-yong'));
+const getSettingItem = (key) => {
+    for (const section of settingSections.value) {
+        const item = section.items.find(item => item.key === key);
+        if (item) return item;
+    }
+    return null;
+};
+
+const getVisibleItems = (section) => section.items.filter(item => !item.hidden && !getUnavailableSettingText(item));
+
+const isToggleItem = (item) => {
+    if (!item?.options || item.options.length !== 2) return false;
+    const values = item.options.map(option => option.value);
+    return values.includes('on') && values.includes('off');
+};
+
+const isToggleEnabled = (item) => selectedSettings.value[item.key]?.value === 'on';
+
+const handleCardClick = (item) => {
+    if (item.action) {
+        item.action(item.helpLink);
         return;
     }
-    if(selectionType.value == 'touchBar' && window.electron.platform != 'darwin'){
-        window.$modal.alert(t('fei-mac-bu-zhi-chi-touchbar'));
+
+    if (isToggleItem(item)) {
         return;
     }
-    if(selectionType.value == 'statusBarLyrics' && window.electron.platform != 'darwin'){
-        window.$modal.alert(t('zhuang-tai-lan-ge-ci-jin-zhi-chi-mac'));
+
+    openSelection(item.key);
+};
+
+const markRefreshHint = (key) => {
+    if (getSettingItem(key)?.showRefreshHint) {
+        showRefreshHint.value[key] = true;
+    }
+};
+
+const shouldKeepSelectionOpen = (key) => {
+    return settingSections.value.some(section => section.items.some(item =>
+        item.keepOpen && item.key === key
+    ));
+};
+
+const getUnavailableSettingText = (item) => {
+    const available = item?.available?.toLowerCase();
+    if (!available) return '';
+    const currentPlatform = isElectron() ? window.electron.platform : 'web';
+    if (available === currentPlatform || available === 'client' && isElectron()) return '';
+    return item.unavailableText || t('fei-ke-hu-duan-huan-jing-wu-fa-qi-yong');
+};
+
+const selectActions = {
+    applyThemeColor: (option) => proxy.$applyColorTheme(option.value),
+    applyTheme: (option) => proxy.$setTheme(option.value),
+    applyLanguage: (option) => {
+        proxy.$i18n.locale = option.value;
+        document.documentElement.lang = option.value;
+    },
+    checkQualityAuth: () => {
+        if (!MoeAuth.isAuthenticated) {
+            window.$modal.alert(t('gao-pin-zhi-yin-le-xu-yao-deng-lu-hou-cai-neng-bo-fango'));
+        }
+    },
+    saveDpiScale: () => {
+        selectedSettings.value.dpiScale = {
+            value: dpiScale.value.toString(),
+            displayText: dpiScale.value.toString()
+        };
+    },
+    toggleDesktopLyrics: (option) => {
+        const action = option.value === 'on' ? 'display-lyrics' : 'close-lyrics';
+        window.electron.ipcRenderer.send('desktop-lyrics-action', action);
+    },
+    dispatchLoudnessNormalization: (option) => {
+        window.dispatchEvent(new CustomEvent('loudness-normalization-change', {
+            detail: { enabled: option.value === 'on' }
+        }));
+    },
+    updateAudioOutputWatch: async (option) => {
+        if (option.value === 'on') {
+            const granted = await requestMicrophonePermission();
+            if (!granted) {
+                selectedSettings.value.pauseOnAudioOutputChange = {
+                    displayText: t('guan-bi'),
+                    value: 'off'
+                };
+                window.dispatchEvent(new CustomEvent('audio-output-device-watch-change', {
+                    detail: { enabled: false }
+                }));
+                window.$modal.alert('音频权限申请失败，无法启用该功能');
+                return;
+            }
+        }
+
+        window.dispatchEvent(new CustomEvent('audio-output-device-watch-change', {
+            detail: { enabled: option.value === 'on' }
+        }));
+    },
+    resetApiBaseUrl: (option) => {
+        if (option.value === 'default') {
+            selectedSettings.value.apiBaseUrl = { displayText: '', value: '' };
+        }
+    },
+    dispatchAudioOutputDevice: (option) => {
+        window.dispatchEvent(new CustomEvent('audio-output-device-change', {
+            detail: { deviceId: option.value }
+        }));
+    },
+    handleLogAction: async (option) => {
+        let result;
+        switch (option.value) {
+            case 'open-path':
+                result = await window.electronAPI.openLogPath();
+                break;
+            case 'export-log':
+                result = await window.electronAPI.exportLog();
+                break;
+            default:
+                break;
+        }
+        if (result?.error) {
+            console.error(`日志操作 ${option.value} 失败:`, result.error);
+            window.$modal.alert(`日志操作失败，详细信息请查看控制台`);
+        }
+        if (option.value === 'export-log' && result?.filePath) {
+            await window.$modal.alert(`日志(已脱敏)已导出到:\n${result.filePath}`);
+        }
+    }
+};
+
+const runSelectAction = async (item, option) => {
+    if (!item?.selectAction) return;
+    await selectActions[item.selectAction]?.(option);
+};
+
+const toggleSetting = async (item) => {
+    const currentValue = selectedSettings.value[item.key]?.value;
+    const nextOption = item.options.find(option => option.value === (currentValue === 'on' ? 'off' : 'on'));
+    if (!nextOption) return;
+
+    selectedSettings.value[item.key] = { ...nextOption };
+    await runSelectAction(item, nextOption);
+    saveSettings();
+    markRefreshHint(item.key);
+};
+
+const selectOption = async (option) => {
+    const settingItem = getSettingItem(selectionType.value);
+    const unavailableText = getUnavailableSettingText(settingItem);
+    if (unavailableText) {
+        window.$modal.alert(unavailableText);
         return;
     }
     selectedSettings.value[selectionType.value] = option;
-    const actions = {
-        'themeColor': () => proxy.$applyColorTheme(option.value),
-        'theme': () => proxy.$setTheme(option.value),
-        'language': () => {
-            proxy.$i18n.locale = option.value;
-            document.documentElement.lang = option.value;
-        },
-        'quality': () => {
-            if (!MoeAuth.isAuthenticated) {
-                window.$modal.alert(t('gao-pin-zhi-yin-le-xu-yao-deng-lu-hou-cai-neng-bo-fango'));
-                return;
-            }
-        },
-        'highDpi': () => {
-            selectedSettings.value.dpiScale = {
-                value: dpiScale.value.toString(),
-                displayText: dpiScale.value.toString()
-            };
-        },
-        'desktopLyrics': () => {
-            const action = option.value === 'on' ? 'display-lyrics' : 'close-lyrics';
-            window.electron.ipcRenderer.send('desktop-lyrics-action', action);
-        },
-        'loudnessNormalization': () => {
-            // 触发响度规格化开关变更事件
-            window.dispatchEvent(new CustomEvent('loudness-normalization-change', {
-                detail: { enabled: option.value === 'on' }
-            }));
-        },
-        'pauseOnAudioOutputChange': async () => {
-            if (option.value === 'on') {
-                const granted = await requestMicrophonePermission();
-                if (!granted) {
-                    selectedSettings.value.pauseOnAudioOutputChange = {
-                        displayText: t('guan-bi'),
-                        value: 'off'
-                    };
-                    window.dispatchEvent(new CustomEvent('audio-output-device-watch-change', {
-                        detail: { enabled: false }
-                    }));
-                    window.$modal.alert('音频权限申请失败，无法启用该功能');
-                    return;
-                }
-            }
-
-            window.dispatchEvent(new CustomEvent('audio-output-device-watch-change', {
-                detail: { enabled: option.value === 'on' }
-            }));
-        },
-        'apiBaseUrlMode': () => {
-            if (option.value === 'default') {
-                selectedSettings.value.apiBaseUrl = { displayText: '', value: '' };
-            }
-        },
-        'audioOutputDevice': async () => {
-            window.dispatchEvent(new CustomEvent('audio-output-device-change', {
-                detail: { deviceId: option.value }
-            }));
-        }
-    };
-    await actions[selectionType.value]?.();
+    await runSelectAction(settingItem, option);
     saveSettings();
-    if(!['apiMode','font','fontUrl', 'proxy', 'apiBaseUrlMode'].includes(selectionType.value)) closeSelection();
-    const refreshHintTypes = ['nativeTitleBar','lyricsBackground', 'lyricsFontSize', 'gpuAcceleration', 'highDpi', 'apiMode', 'apiBaseUrlMode', 'touchBar', 'preventAppSuspension', 'networkMode', 'font', 'proxy', 'dataSource', 'loudnessNormalization', 'statusBarLyrics'];
-    if (refreshHintTypes.includes(selectionType.value)) {
-        showRefreshHint.value[selectionType.value] = true;
-    }
+    if (!shouldKeepSelectionOpen(selectionType.value)) closeSelection();
+    markRefreshHint(selectionType.value);
 };
 
-const updateFontSetting = async (key) => {
-    const prevType = selectionType.value;
-    const value = key === 'font' ? (fontFamilyInput.value || '') : (fontUrlInput.value || '');
-    const displayText = key === 'font' ? (value || t('mo-ren-zi-ti')) : (value || t('mo-ren-zi-ti'));
-    selectionType.value = key;
-    await selectOption({ displayText, value });
-    selectionType.value = prevType;
-};
-
-const handleFontFocusOut = async (e) => {
-    const container = e.currentTarget;
-    if (container && e.relatedTarget && container.contains(e.relatedTarget)) return;
-    await updateFontSetting('fontUrl');
-    await updateFontSetting('font');
+const selectFontOption = (option) => {
+    const key = selectionType.value;
+    selectedSettings.value[key] = {
+        displayText: option.displayText,
+        value: option.value
+    };
+    if (key === 'font') applyCustomFont(option.value);
+    saveSettings();
+    closeSelection();
+    markRefreshHint(key);
 };
 
 const isElectron = () => {
@@ -946,6 +572,9 @@ const saveSettings = () => {
     );
     settingsToSave.shortcuts = shortcuts.value;
     localStorage.setItem('settings', JSON.stringify(settingsToSave));
+    window.dispatchEvent(new CustomEvent('settings-change', {
+        detail: { settings: settingsToSave }
+    }));
     isElectron() && window.electron.ipcRenderer.send('save-settings', JSON.parse(JSON.stringify(settingsToSave)));
 };
 
@@ -955,7 +584,7 @@ const closeSelection = () => {
 
 onMounted(() => {
     const savedSettings = JSON.parse(localStorage.getItem('settings'));
-    
+
     if (savedSettings) {
         if (savedSettings.apiBaseUrlMode === undefined) {
             const legacyUrl = savedSettings.apiBaseUrl || '';
@@ -964,6 +593,12 @@ onMounted(() => {
         for (const key in savedSettings) {
             if (key === 'shortcuts') continue;
             if (key === 'audioOutputDevice') continue;
+            const settingItem = getSettingItem(key);
+            if (key === 'quality') {
+                const option = settingItem.options.find(option => option.value === savedSettings[key]) || settingItem.options[0];
+                selectedSettings.value[key] = { ...option };
+                continue;
+            }
             if (key === 'apiBaseUrlMode') {
                 const value = savedSettings[key] || 'default';
                 selectedSettings.value[key] = {
@@ -977,6 +612,19 @@ onMounted(() => {
                 selectedSettings.value[key] = { displayText: '', value: value };
                 continue;
             }
+            if (key === 'dpiScale') {
+                const value = savedSettings[key] || '1.0';
+                selectedSettings.value[key] = { displayText: value, value: value };
+                continue;
+            }
+            if (isFontSelection(key)) {
+                const value = savedSettings[key] || '';
+                selectedSettings.value[key] = {
+                    displayText: value || t('mo-ren-zi-ti'),
+                    value: value
+                };
+                continue;
+            }
             if (key === 'proxyUrl') {
                 const value = savedSettings[key];
                 selectedSettings.value[key] = {
@@ -985,35 +633,30 @@ onMounted(() => {
                 };
                 continue;
             }
-            if (selectionTypeMap[key] && selectionTypeMap[key].options) {
-                if (key === 'font') {
-                    const value = savedSettings[key];
-                    selectedSettings.value[key] = {
-                        displayText: value || t('mo-ren-zi-ti'),
-                        value: value
-                    };
-                } else {
-                    // Always get displayText from current translation, not from localStorage
-                    const option = selectionTypeMap[key].options.find(
-                        (opt) => opt.value === savedSettings[key]
-                    );
-                    const displayText = option?.displayText || '🌏 ' + t('zi-dong');
-                    selectedSettings.value[key] = { displayText, value: savedSettings[key] };
-                }
+            if (settingItem?.options) {
+                // Always get displayText from current translation, not from localStorage
+                const option = settingItem.options.find(
+                    (opt) => opt.value === savedSettings[key]
+                );
+                const displayText = option?.displayText || '🌏 ' + t('zi-dong');
+                selectedSettings.value[key] = { displayText, value: savedSettings[key] };
             }
         }
     }
     if (savedSettings?.shortcuts) {
         shortcuts.value = savedSettings.shortcuts;
     } else {
-        shortcuts.value = Object.entries(shortcutConfigs.value).reduce((acc, [key, config]) => {
+        shortcuts.value = Object.entries(shortcutConfigs).reduce((acc, [key, config]) => {
             acc[key] = config.defaultValue;
             return acc;
         }, {});
     }
-    if(isElectron()){
+    if (isElectron()) {
         appVersion.value = localStorage.getItem('version');
         platform.value = window.electron.platform;
+    } else {
+        appVersion.value = __VERSION__ || '';
+        platform.value = 'Web';
     }
 
     if (savedSettings?.audioOutputDevice !== undefined) {
@@ -1024,7 +667,7 @@ onMounted(() => {
 const showShortcutModal = ref(false);
 const recordingKey = ref('');
 const shortcuts = ref({});
-const proxyForm = reactive({url: '', testing: false, testResult: '', testStatus: '' });
+const proxyForm = reactive({ url: '', testing: false, testResult: '', testStatus: '' });
 const apiBaseUrlForm = reactive({ url: '', testing: false, testResult: '', testStatus: '' });
 
 const testApiBaseUrl = async () => {
@@ -1077,7 +720,7 @@ const saveApiBaseUrl = () => {
         selectedSettings.value.apiBaseUrl = { displayText: '', value: value };
     }
     saveSettings();
-    showRefreshHint.value.apiBaseUrlMode = true;
+    markRefreshHint('apiBaseUrlMode');
     closeSelection();
 };
 
@@ -1122,7 +765,7 @@ const testProxyConnection = async () => {
                 protocol: proxyUrl.protocol,
                 host: proxyUrl.hostname,
                 port: proxyUrl.port,
-                auth: proxyUrl.username && proxyUrl.password ? 
+                auth: proxyUrl.username && proxyUrl.password ?
                     `${proxyUrl.username}:${proxyUrl.password}` : undefined
             }
         };
@@ -1171,7 +814,7 @@ const saveProxy = () => {
         displayText: proxyUrl ? t('qi-yong') : t('jin-yong'),
         value: proxyUrl ? 'on' : 'off'
     };
-    
+
     // 更新代理地址
     selectedSettings.value.proxyUrl = {
         displayText: proxyUrl,
@@ -1182,52 +825,11 @@ const saveProxy = () => {
     closeSelection();
 };
 
-const shortcutConfigs = ref({
-    mainWindow: {
-        label: t('xian-shi-yin-cang-zhu-chuang-kou'),
-        defaultValue: 'Ctrl+Shift+S'
-    },
-    quitApp: {
-        label: t('tui-chu-zhu-cheng-xu'),
-        defaultValue: 'Ctrl+Q'
-    },
-    prevTrack: {
-        label: t('shang-yi-shou'),
-        defaultValue: 'Alt+Ctrl+Left'
-    },
-    nextTrack: {
-        label: t('xia-yi-shou'),
-        defaultValue: 'Alt+Ctrl+Right'
-    },
-    playPause: {
-        label: t('zan-ting-bo-fang'),
-        defaultValue: 'Alt+Ctrl+Space'
-    },
-    volumeUp: {
-        label: t('yin-liang-zeng-jia'),
-        defaultValue: 'Alt+Ctrl+Up'
-    },
-    volumeDown: {
-        label: t('yin-liang-jian-xiao'),
-        defaultValue: 'Alt+Ctrl+Down'
-    },
-    mute: {
-        label: t('jing-yin'),
-        defaultValue: 'Alt+Ctrl+M'
-    },
-    like: {
-        label: t('tian-jia-wo-xi-huan'),
-        defaultValue: 'Alt+Ctrl+L'
-    },
-    mode: {
-        label: t('qie-huan-bo-fang-mo-shi'),
-        defaultValue: 'Alt+Ctrl+P'
-    },
-    toggleDesktopLyrics: {
-        label: t('xian-shi-yin-cang-zhuo-mian-ge-ci'),
-        defaultValue: 'Alt+Ctrl+D'
-    }
-});
+const openOnboardingGuide = () => {
+    window.dispatchEvent(new CustomEvent(ONBOARDING_GUIDE_EVENT, {
+        detail: { reset: true }
+    }));
+};
 
 const openShortcutSettings = () => {
     showShortcutModal.value = true;
@@ -1236,6 +838,35 @@ const openShortcutSettings = () => {
 const closeShortcutSettings = () => {
     showShortcutModal.value = false;
     recordingKey.value = '';
+};
+
+const displayShortcut = (key) => {
+    if (!shortcuts.value?.[key]) return false;
+    const keys = {
+        'Meta': isElectron() ?
+            window?.electron.platform === 'darwin' ? '⌘' : '<i class="fab fa-windows"></i>' :
+            '⌘/<i class="fab fa-windows"></i>',
+        'num0': 'Num0',
+        'num1': 'Num1',
+        'num2': 'Num2',
+        'num3': 'Num3',
+        'num4': 'Num4',
+        'num5': 'Num5',
+        'num6': 'Num6',
+        'num7': 'Num7',
+        'num8': 'Num8',
+        'num9': 'Num9',
+        'numdec': 'Num.',
+        'numadd': 'Num+',
+        'numsub': 'Num-',
+        'nummult': 'Num*',
+        'numdiv': 'Num/',
+    };
+    let display = shortcuts.value[key];
+    Object.keys(keys).forEach(k => {
+        display = display.replace(k, keys[k]);
+    });
+    return display;
 };
 
 const startRecording = (key) => {
@@ -1251,7 +882,7 @@ const recordShortcut = (e) => {
     const keys = [];
 
     // 修饰键
-    if (e.metaKey) keys.push('CommandOrControl');
+    if (e.metaKey) keys.push('Meta');
     if (e.ctrlKey) keys.push('Ctrl');
     if (e.altKey) keys.push('Alt');
     if (e.shiftKey) keys.push('Shift');
@@ -1264,7 +895,7 @@ const recordShortcut = (e) => {
 
     // 特殊键映射
     const specialKeys = {
-        ' ': 'Space',
+        'Space': 'Space',
         'ArrowUp': 'Up',
         'ArrowDown': 'Down',
         'ArrowLeft': 'Left',
@@ -1278,16 +909,26 @@ const recordShortcut = (e) => {
         'PageDown': 'PageDown',
         'Home': 'Home',
         'End': 'End',
-        '+': 'numadd',
-        '-': 'numsub',
-        '*': 'nummult',
-        '/': 'numdiv',
-        '=': 'Equal',
-        '.': 'Dot',
-        'NumpadDecimal': 'numdec'
+
+        // Numpad
+        'Numpad0': 'num0',
+        'Numpad1': 'num1',
+        'Numpad2': 'num2',
+        'Numpad3': 'num3',
+        'Numpad4': 'num4',
+        'Numpad5': 'num5',
+        'Numpad6': 'num6',
+        'Numpad7': 'num7',
+        'Numpad8': 'num8',
+        'Numpad9': 'num9',
+        'NumpadDecimal': 'numdec',
+        'NumpadAdd': 'numadd',
+        'NumpadSubtract': 'numsub',
+        'NumpadMultiply': 'nummult',
+        'NumpadDivide': 'numdiv',
     };
 
-    const key = specialKeys[e.key] || e.key.toUpperCase();
+    const key = specialKeys[e.code] || e.key.toUpperCase();
 
     // 只有当按下的不是单独的修饰键时才结束记录
     if (!['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
@@ -1295,7 +936,7 @@ const recordShortcut = (e) => {
 
         if (keys.length > 0) {
             // 检查是否包含必要的修饰键
-            if (!keys.some(k => ['Ctrl', 'Alt', 'Shift', 'CommandOrControl'].includes(k))) {
+            if (!keys.some(k => ['Ctrl', 'Alt', 'Shift', 'Meta'].includes(k))) {
                 window.$modal.alert(t('kuai-jie-jian-bi-xu-bao-han-zhi-shao-yi-ge-xiu-shi-jian-ctrlaltshiftcommand'));
                 return;
             }
@@ -1307,7 +948,7 @@ const recordShortcut = (e) => {
             );
 
             if (conflictKey) {
-                window.$modal.alert(t('gai-kuai-jie-jian-yu')+conflictKey[0]+t('de-kuai-jie-jian-chong-tu'));
+                window.$modal.alert(t('gai-kuai-jie-jian-yu') + conflictKey[0] + t('de-kuai-jie-jian-chong-tu'));
                 return;
             }
 
@@ -1321,7 +962,7 @@ const recordShortcut = (e) => {
 // 添加快捷键验证函数
 const validateShortcut = (shortcut) => {
     const keys = shortcut.split('+');
-    return keys.some(k => ['Ctrl', 'Alt', 'Shift', 'Command'].includes(k));
+    return keys.some(k => ['Ctrl', 'Alt', 'Shift', 'Meta'].includes(k));
 };
 
 // 修改 saveShortcuts 函数，添加检查
@@ -1345,7 +986,7 @@ const saveShortcuts = () => {
         let settingsToSave = JSON.parse(localStorage.getItem('settings')) || {};
         settingsToSave.shortcuts = shortcuts.value;
         localStorage.setItem('settings', JSON.stringify(settingsToSave));
-        window.electron.ipcRenderer.send('save-settings',  JSON.parse(JSON.stringify(settingsToSave)));
+        window.electron.ipcRenderer.send('save-settings', JSON.parse(JSON.stringify(settingsToSave)));
         window.electron.ipcRenderer.send('custom-shortcut');
     } catch (error) {
         console.error('保存设置失败:', error);
@@ -1367,7 +1008,7 @@ const dpiScale = ref(1.0);
 
 const openResetConfirmation = async () => {
     const result = await window.$modal.confirm(t('ni-que-ren-hui-fu-chu-chang'));
-    if(result){
+    if (result) {
         localStorage.clear();
         isElectron() && window.electron.ipcRenderer.send('clear-settings');
         window.$modal.alert(t('hui-fu-chu-chang-she-zhi-cheng-gong'));
@@ -1375,7 +1016,7 @@ const openResetConfirmation = async () => {
 };
 
 let deferredPrompt;
-if(!isElectron()){
+if (!isElectron()) {
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
@@ -1383,13 +1024,13 @@ if(!isElectron()){
 }
 
 const installPWA = async () => {
-    if(isElectron()){
+    if (isElectron()) {
         window.$modal.alert(t('qing-zai-web-huan-jing-xia-an-zhuang'));
         return;
     }
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    
+
     if (outcome === 'accepted') {
         console.log('User accepted the PWA installation');
         deferredPrompt = null;
@@ -1399,19 +1040,36 @@ const installPWA = async () => {
 };
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+$primary: var(--color-primary);
+$primary-light: var(--color-primary-light);
+$text-muted: #666;
+$border-light: #eaeaea;
+$shadow-light: rgba(0, 0, 0, 0.15);
+$shadow-medium: rgba(0, 0, 0, 0.18);
+
 .settings-page {
     display: flex;
-    height: 100vh;
+    height: var(--settings-page-height, calc(100vh - 160px));
+    min-height: 0;
     overflow: hidden;
-    box-shadow: 0 0 30px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 0 30px $shadow-light;
     border-radius: 8px;
-    margin-bottom: -80px;
+}
+
+:global(main.app-main-scroll:has(.settings-page)) {
+    --settings-page-height: calc(100vh - 160px);
+    padding-bottom: 80px;
+}
+
+:global(main.side-navigation-main-content:has(.settings-page)) {
+    --settings-page-height: calc(100vh - 132px);
 }
 
 .settings-sidebar {
     width: 220px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
+    flex: 0 0 220px;
+    box-shadow: 0 0 10px $shadow-light;
     padding: 20px 0;
     overflow-y: auto;
 }
@@ -1424,87 +1082,179 @@ const installPWA = async () => {
     display: flex;
     align-items: center;
     transition: all 0.2s ease;
-}
 
-.sidebar-item i {
-    margin-right: 12px;
-    font-size: 16px;
-    width: 20px;
-    text-align: center;
-}
+    i {
+        margin-right: 12px;
+        font-size: 16px;
+        width: 20px;
+        text-align: center;
+    }
 
-.sidebar-item.active {
-    background-color: var(--color-primary-light, rgba(255, 105, 180, 0.1));
-    color: var(--color-primary, #ff69b4);
-    font-weight: 500;
-}
+    &.active {
+        background-color: $primary-light;
+        color: $primary;
+        font-weight: 500;
+    }
 
-.sidebar-item:hover:not(.active) {
-    background-color: var(--hover-color, #efefef);
+    &:hover:not(.active) {
+        background-color: var(--hover-color, #efefef);
+    }
 }
 
 .settings-content {
     flex: 1;
+    min-width: 0;
+    min-height: 0;
     padding: 20px;
     overflow-y: auto;
 }
 
 .setting-section {
     animation: fadeIn 0.3s ease;
-}
 
-.setting-section h3 {
-    font-size: 22px;
-    font-weight: 600;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border-color, #eaeaea);
+    h3 {
+        font-size: 22px;
+        font-weight: 600;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid $border-light;
+    }
 }
 
 .settings-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
     gap: 16px;
+
+    .setting-card-header i {
+        color: var(--primary-color);
+    }
 }
 
 .setting-card {
+    min-width: 0;
+    box-sizing: border-box;
     border-radius: 12px;
     padding: 16px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 16px $shadow-light;
     transition: all 0.2s ease;
     cursor: pointer;
+
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px $shadow-medium;
+    }
+
+    &-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+
+    &-value {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        min-width: 0;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        border: 1px solid $border-light;
+
+        i {
+            color: #999;
+            font-size: 12px;
+            flex: 0 0 auto;
+        }
+
+        span {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    &--toggle {
+        .setting-card-value {
+            gap: 12px;
+            min-height: 38px;
+            padding: 4px 12px;
+            box-sizing: border-box;
+        }
+    }
 }
 
-.setting-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-}
-
-.setting-card-header {
+.setting-card-title {
     display: flex;
     align-items: center;
-    margin-bottom: 12px;
+    min-width: 0;
+
+    i {
+        color: $primary;
+        margin-right: 10px;
+        font-size: 16px;
+        flex: 0 0 auto;
+    }
+
+    > span {
+        min-width: 0;
+        word-break: break-word;
+    }
 }
 
-.setting-card-header i {
-    color: var(--color-primary, #ff69b4);
-    margin-right: 10px;
-    font-size: 16px;
-}
-
-.setting-card-value {
-    display: flex;
-    justify-content: space-between;
+.card-help-link {
+    display: inline-flex;
     align-items: center;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 14px;
-    border: 1px solid var(--border-color, #eaeaea);
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    margin-left: 12px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: $primary;
+    cursor: pointer;
+    flex: 0 0 auto;
+
+    &:hover {
+        opacity: 0.85;
+    }
 }
 
-.setting-card-value i {
-    color: #999;
-    font-size: 12px;
+.setting-switch {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    border: 0;
+    border-radius: 999px;
+    background: #d9d9d9;
+    cursor: pointer;
+    padding: 0;
+    transition: background-color 0.2s ease;
+    flex: 0 0 auto;
+
+    &.active {
+        background: $primary;
+    }
+}
+
+.setting-switch-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    transition: transform 0.2s ease;
+}
+
+.setting-switch.active .setting-switch-thumb {
+    transform: translateX(18px);
 }
 
 .refresh-hint {
@@ -1524,7 +1274,7 @@ const installPWA = async () => {
     align-items: center;
     justify-content: center;
     animation: fadeIn 0.3s ease-in-out;
-    z-index: 9;
+    z-index: 999;
 }
 
 .modal-content {
@@ -1537,71 +1287,107 @@ const installPWA = async () => {
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
     animation: slideIn 0.3s ease-in-out;
     position: relative;
-}
+    max-height: 50vh;
+    overflow: hidden;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
 
-.modal-content h3 {
-    font-size: 20px;
-    margin-bottom: 20px;
-    color: #333;
-}
+    h3 {
+        flex: 0 0 auto;
+        font-size: 20px;
+        margin-bottom: 20px;
+        color: #333;
+    }
 
-.modal-content ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
+    .font-search {
+        padding: 12px;
+        margin: 6px 0;
+        outline: 0;
+        border: 0;
+        border-radius: 8px;
+        font-size: 1em;
+    }
 
-.modal-content li {
-    padding: 12px;
-    margin: 6px 0;
-    background-color: var(--background-color);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
+    ul {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: 46vh;
+        overflow-y: auto;
+        list-style: none;
+        padding: 0 4px 0 0;
+        margin: 0;
+        overscroll-behavior: contain;
+    }
 
-.modal-content li:hover {
-    background-color:var(--secondary-color);
-}
+    li {
+        padding: 12px;
+        margin: 6px 0;
+        background-color: var(--background-color);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 0.2s;
 
-.modal-content button {
-    margin-top: 20px;
-    padding: 10px 20px;
-    background-color: var(--color-primary);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.3s;
-}
+        &:hover {
+            background-color: var(--secondary-color);
+        }
+    }
 
-.modal-content button:hover {
-    background-color: var(--color-primary)
+    button {
+        flex: 0 0 auto;
+        margin-top: 20px;
+        padding: 10px 20px;
+        background-color: $primary;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.3s;
+
+        &:hover {
+            background-color: $primary;
+        }
+    }
+
+    > button {
+        align-self: center;
+        min-width: 96px;
+    }
 }
 
 .help-link {
     position: absolute;
     top: 12px;
     right: 12px;
-    color: var(--color-primary);
+    color: $primary;
     cursor: pointer;
     text-decoration: none;
     font-size: 18px;
-}
 
-.help-link:hover {
-    opacity: 0.85;
+    &:hover {
+        opacity: 0.85;
+    }
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes slideIn {
-    from { transform: translateY(-20px); }
-    to { transform: translateY(0); }
+    from {
+        transform: translateY(-20px);
+    }
+
+    to {
+        transform: translateY(0);
+    }
 }
 
 .shortcut-modal {
@@ -1623,12 +1409,12 @@ const installPWA = async () => {
     padding: 20px;
     width: 90%;
     max-width: 500px;
-}
 
-.shortcut-modal-content h3 {
-    margin: 0 0 20px 0;
-    font-size: 18px;
-    text-align: center;
+    h3 {
+        margin: 0 0 20px 0;
+        font-size: 18px;
+        text-align: center;
+    }
 }
 
 .shortcut-list {
@@ -1658,21 +1444,21 @@ const installPWA = async () => {
     justify-content: center;
     gap: 8px;
     font-size: 15px;
-}
 
-.shortcut-input.recording {
-    background: var(--color-primary);
-    color: white;
-}
+    &.recording {
+        background: $primary;
+        color: white;
 
-.shortcut-input.recording .clear-shortcut {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-}
+        .clear-shortcut {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
 
-.shortcut-input.recording .clear-shortcut:hover {
-    background: rgba(255, 255, 255, 0.3);
-    color: white;
+            &:hover {
+                background: rgba(255, 255, 255, 0.3);
+                color: white;
+            }
+        }
+    }
 }
 
 .clear-shortcut {
@@ -1685,7 +1471,7 @@ const installPWA = async () => {
     background: rgba(0, 0, 0, 0.1);
     cursor: pointer;
     font-size: 14px;
-    color: #666;
+    color: $text-muted;
     transition: all 0.2s;
     position: absolute;
     right: 5px;
@@ -1696,25 +1482,25 @@ const installPWA = async () => {
     justify-content: flex-end;
     gap: 12px;
     margin-top: 20px;
-}
 
-.shortcut-modal-footer button {
-    padding: 8px 20px;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-}
+    button {
+        padding: 8px 20px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
 
-.shortcut-modal-footer button.primary {
-    background: var(--color-primary);
-    color: white;
+        &.primary {
+            background: $primary;
+            color: white;
+        }
+    }
 }
 
 .version-info {
     text-align: center;
     margin-top: 20px;
     font-size: 14px;
-    color: #666;
+    color: $text-muted;
 }
 
 .reset-settings-container {
@@ -1736,10 +1522,10 @@ const installPWA = async () => {
     display: flex;
     align-items: center;
     gap: 8px;
-}
 
-.reset-settings-button:hover {
-    background-color: #e53935;
+    &:hover {
+        background-color: #e53935;
+    }
 }
 
 .scale-slider-container {
@@ -1757,7 +1543,7 @@ const installPWA = async () => {
 
 .scale-slider-hint {
     font-size: 12px;
-    color: #666;
+    color: $text-muted;
 }
 
 .scale-slider-wrapper {
@@ -1773,25 +1559,25 @@ const installPWA = async () => {
     background: #ddd;
     outline: none;
     border-radius: 3px;
-}
 
-.scale-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--color-primary);
-    cursor: pointer;
-}
+    &::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: $primary;
+        cursor: pointer;
+    }
 
-.scale-slider::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--color-primary);
-    cursor: pointer;
-    border: none;
+    &::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: $primary;
+        cursor: pointer;
+        border: none;
+    }
 }
 
 .scale-marks {
@@ -1799,69 +1585,70 @@ const installPWA = async () => {
     justify-content: space-between;
     margin-top: 5px;
     font-size: 12px;
-    color: #666;
+    color: $text-muted;
 }
 
-.api-settings-container {
+.api-settings-container,
+.proxy-settings-container {
     display: flex;
     flex-direction: column;
     align-items: center;
-}
 
-.api-settings-container .api-setting-item {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    margin-bottom: 10px;
-    width: 100%;
-}
+    .api-setting-item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        margin-bottom: 10px;
+        width: 100%;
 
-.api-settings-container .api-setting-item label {
-    font-size: 14px;
-    color: #333;
-    margin-bottom: 5px;
-}
+        label {
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 5px;
+        }
 
-.api-settings-container .api-setting-item .api-input, .proxy-settings-container .api-input {
-    width: 100%;
-    height: 35px;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    padding: 5px;
-    padding-left: 10px;
-    box-sizing: border-box;
-}
+        .api-input {
+            width: 100%;
+            height: 35px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 5px;
+            padding-left: 10px;
+            box-sizing: border-box;
+        }
+    }
 
-.api-settings-container .api-hint {
-    font-size: 12px;
-    color: #999;
-    text-align: center;
+    .api-hint {
+        font-size: 12px;
+        color: #999;
+        text-align: center;
+    }
 }
 
 .proxy-actions {
     display: flex;
     gap: 12px;
     width: 100%;
-}
 
-.proxy-actions button {
-    flex: 1;
-    min-width: 0;
-    padding: 8px 0;
-    border-radius: 6px;
+    button {
+        flex: 1;
+        min-width: 0;
+        padding: 8px 0;
+        border-radius: 6px;
+    }
 }
 
 .proxy-test-result {
     font-size: 13px;
     line-height: 18px;
     margin-top: 5px;
-}
 
-.proxy-test-result.success {
-    color: #4caf50;
-}
+    &.success {
+        color: #4caf50;
+    }
 
-.proxy-test-result.error {
-    color: #e53935;
+    &.error {
+        color: #e53935;
+    }
 }
 </style>

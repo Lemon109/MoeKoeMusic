@@ -1,8 +1,14 @@
 <br />
 <p align="center">
-    <img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/logo.png" alt="Logo" width="156" height="156">
+    <img src="https://github.com/iAJue/MoeKoeMusic/raw/main/images/hero.png" alt="hero" width="250" height="250">
   <h2 align="center" style="font-weight: 600">MoeKoe Music</h2>
-
+  <p align="center">
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases/latest"><img src="https://img.shields.io/github/v/release/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/stargazers"><img src="https://img.shields.io/github/stars/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/releases"><img src="https://img.shields.io/github/downloads/MoeKoeMusic/MoeKoeMusic/total?style=flat-square" /></a>
+    <a href="https://github.com/MoeKoeMusic/MoeKoeMusic/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MoeKoeMusic/MoeKoeMusic?style=flat-square" /></a>
+    <a href="https://github.com/iAJue"><img src="https://img.shields.io/badge/%F0%9F%8E%89_Create_by_iAJue-with_Love_%E2%9D%A4-pink?style=flat-square" /></a>
+  </p>
   <p align="center">
     一款开源简洁高颜值的酷狗第三方客户端
     <br />
@@ -40,27 +46,30 @@
 - 🔴 酷狗账号登录（扫码/手机/账号登录）
 - 📃 支持歌词显示
 - 📻 每日推荐歌曲
-- 🚫🤝 无任何社交功能
-- 🔗 官方服务器直连, 无任何第三方 API
-- ✔️ 每日自动领取VIP, 登录就是VIP
-- 🎨 主题色切换 
+- 🔕 无任何社交功能
+- 🔗 官方服务器直连
+- ✔️ 每日自动领取VIP，登录就是VIP
+- 🎨 主题色切换
 - 👋 启动问候语
 - ⚙️ 多平台支持
-- 🛠 更多特性开发中
+- 🧩 超级插件系统
+- 🧭 布局个性化设置
+- 🥚 隐藏功能与彩蛋系统
+- 🚀 新手引导系统
+- ✨ 更多特性由你来探索
 
 ## 📢 Todo List
 - [x] 📺 支持 MV 播放
 - [x] 🌚 Light/Dark Mode 自动切换
 - [x] 👆 支持 Touch Bar
-- [x] 🖥️ 支持 PWA，可在 Chrome/Edge 里点击地址栏右边的 ➕ 安装到电脑
-- [ ] 🎧 支持 Mpris
+- [x] 🖥️ 支持 PWA
 - [x] ⌨️ 全局快捷键
 - [x] 🤟 多语言支持
 - [x] 📻 桌面歌词
 - [x] ⚙️ 系统架构优化
 - [x] 🎶 歌曲、歌单/收藏、取消
 
-更新日志请查看 [Commits](https://github.com/iAJue/MoeKoeMusic/commits/main/)
+[查看更新日志](http://music.moekoe.cn/changelog.html)
 
 ## 📦️ 安装
 
@@ -77,13 +86,14 @@
     ```
     git clone https://github.com/iAJue/MoeKoeMusic.git
     cd MoeKoeMusic
+    git submodule update --init --recursive
     docker compose up -d &
     ```
 
     2. ~~方式二：使用docker-compose一键安装 （镜像暂未上传官方）~~
     
     ```
-    docker run -d --name MoeKoeMusic -p 8080:8080 iajue/moekoe-music:latest
+    docker run -d --name MoeKoeMusic -p 8080:8080 -p 6521:6521 -e PORT=6521 -e platform=lite iajue/moekoe-music:latest
     ```
 
     3. 方式三：宝塔容器编排
@@ -102,6 +112,9 @@
         build:
           context: .
           dockerfile: Dockerfile
+        environment:
+          - PORT=6521
+          - platform=lite
         ports: # 端口映射
           - "8080:8080"  # 前端服务
           - "6521:6521"  # 接口服务
@@ -293,8 +306,11 @@ API 源代码来自 [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicA
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/6.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/7.png)
 ![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/8.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/9.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/10.png)
+![image](https://github.com/iAJue/MoeKoeMusic/raw/main/images/11.png)
 
 
 ## 🗓️ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=iAJue/MoeKoeMusic&type=Date)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)
+[![Star History Chart](https://api.star-history.com/chart?repos=MoeKoeMusic/MoeKoeMusic&type=date&legend=top-left&sealed_token=unIw8k8CbengL1CW5XVoW-psSsTQHjp7X6Hchrr9WiEh4baeFZXunI95J9V8nnY8XTWrT8UuvRBXScevzXLRlhTID0-_V200iw9TFChclu1-28maCH3NutInvRl6nQ1jDMXpInpefFixeHYDr8BCn9fYqiNtZAoK30Vi46s7QPQQU80mJstgjgeqWjXf)](https://www.star-history.com/#iAJue/MoeKoeMusic&Date)

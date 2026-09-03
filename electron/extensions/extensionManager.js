@@ -5,6 +5,7 @@ import log from 'electron-log';
 import { fileURLToPath } from 'url';
 import isDev from 'electron-is-dev';
 import AdmZip from 'adm-zip';
+import { validateNativeHostManifest } from './nativeHostManager.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,7 +17,7 @@ const EXTENSIONS_DIR = !isDev
 /**
  * 加载 Chrome 插件
  */
-export function loadChromeExtensions() {
+export async function loadChromeExtensions() {
     if (!fs.existsSync(EXTENSIONS_DIR)) {
         fs.mkdirSync(EXTENSIONS_DIR, { recursive: true });
         log.info('创建插件目录:', EXTENSIONS_DIR);
@@ -26,6 +27,8 @@ export function loadChromeExtensions() {
         const extensionDirs = fs.readdirSync(EXTENSIONS_DIR, { withFileTypes: true })
             .filter(dirent => dirent.isDirectory())
             .map(dirent => dirent.name);
+
+        const loadTasks = [];
 
         for (const extensionDir of extensionDirs) {
             const extensionPath = path.join(EXTENSIONS_DIR, extensionDir);
@@ -37,13 +40,15 @@ export function loadChromeExtensions() {
                     
                     // 验证 manifest 格式
                     if (manifest.manifest_version && manifest.name && manifest.version) {
-                        session.defaultSession.loadExtension(extensionPath, {
-                            allowFileAccess: true
-                        }).then((extension) => {
-                            log.info(`成功加载插件: ${manifest.name} (${extension.id})`);
-                        }).catch((error) => {
-                            log.error(`加载插件失败 ${extensionDir}:`, error);
-                        });
+                        loadTasks.push(
+                            session.defaultSession.loadExtension(extensionPath, {
+                                allowFileAccess: true
+                            }).then((extension) => {
+                                log.info(`成功加载插件: ${manifest.name} (${extension.id})`);
+                            }).catch((error) => {
+                                log.error(`加载插件失败 ${extensionDir}:`, error);
+                            })
+                        );
                     } else {
                         log.warn(`插件 ${extensionDir} 的 manifest.json 格式不正确`);
                     }
@@ -54,6 +59,8 @@ export function loadChromeExtensions() {
                 log.warn(`插件目录 ${extensionDir} 缺少 manifest.json 文件`);
             }
         }
+
+        await Promise.allSettled(loadTasks);
     } catch (error) {
         log.error('扫描插件目录失败:', error);
     }
@@ -107,11 +114,37 @@ export async function installExtension(extensionPath) {
  * 卸载单个插件
  * @param {string} extensionId 插件ID
  */
-export function uninstallExtension(extensionId) {
+export function uninstallExtension(extensionId, extensionDir = '') {
     try {
-        session.defaultSession.removeExtension(extensionId);
-        log.info(`卸载插件: ${extensionId}`);
-        return { success: true };
+        let removedFromSession = false;
+        let removedFiles = false;
+        let targetDirPath = '';
+
+        targetDirPath = path.join(EXTENSIONS_DIR, path.basename(extensionDir.trim()));
+        try {
+            session.defaultSession.removeExtension(extensionId);
+            removedFromSession = true;
+            log.info(`卸载插件会话: ${extensionId}`);
+        } catch (error) {
+            log.warn(`卸载插件会话失败 ${extensionId}:`, error);
+        }
+
+        if (targetDirPath && fs.existsSync(targetDirPath)) {
+            fs.rmSync(targetDirPath, { recursive: true, force: true });
+            removedFiles = true;
+            log.info(`删除插件目录: ${targetDirPath}`);
+        }
+
+        if (!removedFromSession && !removedFiles) {
+            return { success: false, message: '未找到可卸载的插件会话或目录' };
+        }
+
+        return {
+            success: true,
+            removedFromSession,
+            removedFiles,
+            path: targetDirPath || ''
+        };
     } catch (error) {
         log.error('卸载插件失败:', error);
         return { success: false, message: error.message };
@@ -121,10 +154,10 @@ export function uninstallExtension(extensionId) {
 /**
  * 重新加载所有插件
  */
-export function reloadExtensions() {
+export async function reloadExtensions() {
     try {
         unloadChromeExtensions();
-        loadChromeExtensions();
+        await loadChromeExtensions();
         return { success: true, message: '插件重新加载成功' };
     } catch (error) {
         log.error('重新加载插件失败:', error);
@@ -175,10 +208,33 @@ export function validateManifest(manifestPath) {
             return { valid: false, error: '仅支持 Manifest V3 格式' };
         }
 
+        // Native Host 是本地进程能力，必须在 manifest 校验阶段先拦截不安全声明。
+        const nativeHostError = validateNativeHostManifest(manifest);
+        if (nativeHostError) {
+            return { valid: false, error: nativeHostError };
+        }
+
         return { valid: true, manifest };
     } catch (error) {
         return { valid: false, error: `解析 manifest.json 失败: ${error.message}` };
     }
+}
+
+function getExtensionPopupPath(manifest) {
+    const popupPath = manifest?.action?.default_popup || '';
+
+    return typeof popupPath === 'string' ? popupPath.trim() : '';
+}
+
+function hasExtensionPopupFile(extensionPath, manifest) {
+    const popupPath = getExtensionPopupPath(manifest);
+    if (!popupPath) {
+        return false;
+    }
+
+    const normalizedPopupPath = popupPath.replace(/[\\/]+/g, path.sep);
+    const fullPopupPath = path.join(extensionPath, normalizedPopupPath);
+    return fs.existsSync(fullPopupPath);
 }
 
 /**
@@ -196,6 +252,8 @@ export function getExtensionInfo(extensionDir) {
 
     const manifest = validation.manifest;
     const stats = fs.statSync(extensionPath);
+    const popupPath = getExtensionPopupPath(manifest);
+    const hasPopup = hasExtensionPopupFile(extensionPath, manifest);
     
     return {
         name: manifest.name,
@@ -206,7 +264,9 @@ export function getExtensionInfo(extensionDir) {
         path: extensionPath,
         size: getDirectorySize(extensionPath),
         lastModified: stats.mtime,
-        manifest: manifest
+        manifest: manifest,
+        popupPath,
+        hasPopup
     };
 }
 
@@ -277,6 +337,11 @@ export async function installPluginFromZip(zipPath) {
             if (manifest.manifest_version !== 3) {
                 return { success: false, message: '仅支持 Manifest V3 格式' };
             }
+            // zip 安装也走同一套 Native Host 校验，避免远程插件绕过权限声明。
+            const nativeHostError = validateNativeHostManifest(manifest);
+            if (nativeHostError) {
+                return { success: false, message: nativeHostError };
+            }
         } catch (error) {
             return { success: false, message: `manifest.json 解析失败: ${error.message}` };
         }
@@ -334,6 +399,68 @@ export async function installPluginFromZip(zipPath) {
         log.error('安装插件失败:', error);
         return { success: false, message: '安装插件失败：' + error.message };
     }
+}
+
+/**
+ * Download a zip package and install or update a plugin from a remote URL.
+ * @param {string} downloadUrl
+ * @param {string} extensionId
+ * @param {string} extensionDir
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+export async function installPluginFromUrl(downloadUrl, extensionId = '', extensionDir = '') {
+    const tempZipPath = path.join(app.getPath('temp'), `moekoe-plugin-${Date.now()}.zip`);
+
+    try {
+        if (!downloadUrl || typeof downloadUrl !== 'string') {
+            return { success: false, message: 'Invalid plugin download url' };
+        }
+
+        const response = await fetch(downloadUrl);
+        if (!response.ok) {
+            return {
+                success: false,
+                message: `Failed to download plugin package: ${response.status} ${response.statusText || ''}`.trim()
+            };
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const zipBuffer = Buffer.from(arrayBuffer);
+
+        if (!isZipBuffer(zipBuffer)) {
+            return { success: false, message: '下载内容不是有效的 zip 插件包' };
+        }
+
+        fs.writeFileSync(tempZipPath, zipBuffer);
+
+        if (extensionId || extensionDir) {
+            const uninstallResult = uninstallExtension(extensionId, extensionDir);
+            if (!uninstallResult.success) {
+                log.warn('Failed to remove existing plugin before update:', uninstallResult.message);
+            }
+        }
+
+        return await installPluginFromZip(tempZipPath);
+    } catch (error) {
+        log.error('Failed to install plugin from url:', error);
+        return { success: false, message: error.message };
+    } finally {
+        if (fs.existsSync(tempZipPath)) {
+            fs.rmSync(tempZipPath, { force: true });
+        }
+    }
+}
+
+function isZipBuffer(buffer) {
+    return Boolean(buffer) &&
+        buffer.length >= 4 &&
+        buffer[0] === 0x50 &&
+        buffer[1] === 0x4b &&
+        (
+            (buffer[2] === 0x03 && buffer[3] === 0x04) ||
+            (buffer[2] === 0x05 && buffer[3] === 0x06) ||
+            (buffer[2] === 0x07 && buffer[3] === 0x08)
+        );
 }
 
 /**
@@ -410,5 +537,6 @@ export default {
     getExtensionInfo,
     formatFileSize,
     scanExtensions,
-    installPluginFromZip
+    installPluginFromZip,
+    installPluginFromUrl
 };
